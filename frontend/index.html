@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Efada.Ai - Smart Call Routing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Rubik:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#00d084',
+              'primary-dark': '#00b574',
+              navy: '#1a3446',
+              'navy-light': '#243f54',
+              danger: '#ff1818',
+              accent: '#ff6900',
+              'bg-light': '#f1f5f9',
+              'bg-card': '#ffffff',
+              'text-dark': '#111827',
+              'text-gray': '#64748b',
+              'text-muted': '#9ca3af',
+              'border': '#e5e7eb',
+            },
+            fontFamily: {
+              heading: ['Montserrat', 'sans-serif'],
+              body: ['Rubik', 'sans-serif'],
+            },
+          },
+        },
+      }
+    </script>
+  </head>
+  <body class="font-body bg-bg-light text-text-dark">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
