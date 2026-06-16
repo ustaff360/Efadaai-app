@@ -1,10 +1,11 @@
 """
 Auth API — Login, Register, Token, Password Change
 """
+from __future__ import annotations
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -20,7 +21,8 @@ router = APIRouter()
 # --- Schemas ---
 
 class LoginRequest(BaseModel):
-    username: str
+    username: str | None = None
+    email: str | None = None
     password: str
 
 
@@ -37,6 +39,13 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6)
 
 
+class ProfileUpdateRequest(BaseModel):
+    email: str | None = None
+    full_name: str | None = None
+    current_password: str | None = None
+    new_password: str | None = None
+
+
 class UserResponse(BaseModel):
     id: int
     username: str
@@ -51,6 +60,11 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+class ProfileUpdateResponse(BaseModel):
+    message: str
+    user: UserResponse
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -62,7 +76,16 @@ class TokenResponse(BaseModel):
 @router.post("/login/", response_model=TokenResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate user and return JWT token"""
-    result = await db.execute(select(User).where(User.username == data.username))
+    identifier = data.username or data.email
+    if not identifier:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Username or email is required",
+        )
+
+    result = await db.execute(
+        select(User).where((User.username == identifier) | (User.email == identifier))
+    )
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(data.password, user.password_hash):
@@ -112,8 +135,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Email already exists")
 
     # First user is always admin
-    user_count = (await db.execute(select(User))).scalars().all()
-    if len(user_count) == 0:
+    user_count = len((await db.execute(select(User))).scalars().all())
+    if user_count == 0:
         role = "admin"
     else:
         role = data.role if data.role in ["admin", "manager", "agent", "viewer"] else "viewer"
@@ -176,3 +199,47 @@ async def change_password(
     await db.flush()
 
     return {"message": "Password changed successfully"}
+
+
+@router.put("/profile/", response_model=ProfileUpdateResponse)
+async def update_profile(
+    data: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update current user's profile (name, email, password)"""
+    # Validate email uniqueness if changing
+    if data.email and data.email != current_user.email:
+        existing = await db.execute(select(User).where(User.email == data.email))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Email already in use")
+        current_user.email = data.email
+
+    # Validate current password if changing password
+    if data.new_password:
+        if not data.current_password:
+            raise HTTPException(status_code=400, detail="Current password required to change password")
+        if not verify_password(data.current_password, current_user.password_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        current_user.password_hash = hash_password(data.new_password)
+
+    # Update full name
+    if data.full_name is not None:
+        current_user.full_name = data.full_name
+
+    await db.flush()
+    await db.refresh(current_user)
+
+    return ProfileUpdateResponse(
+        message="Profile updated successfully",
+        user=UserResponse(
+            id=current_user.id,
+            username=current_user.username,
+            email=current_user.email,
+            full_name=current_user.full_name,
+            role=current_user.role,
+            status=current_user.status,
+            last_login=current_user.last_login.isoformat() if current_user.last_login else None,
+            created_at=current_user.created_at.isoformat(),
+        ),
+    )

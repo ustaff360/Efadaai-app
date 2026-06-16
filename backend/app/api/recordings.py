@@ -96,7 +96,8 @@ async def download_recording(
     if not recording_file.exists():
         # Try alternate paths
         base = RECORDING_BASE / Path(recording.recording_path).parent.name
-        for candidate in base.rglob(Path(recording.recording_path).name):
+        filename = Path(recording.recording_path).name
+        for candidate in base.rglob(filename):
             recording_file = candidate
             break
         else:

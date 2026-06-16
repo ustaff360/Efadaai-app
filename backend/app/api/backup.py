@@ -14,6 +14,7 @@ from app.models.agent import Agent
 from app.models.category import Category, DID, CategoryAgent
 from app.models.caller import Caller, CallLog, BlockList
 from app.models.user import User
+from app.api.ws import dashboard_broadcast
 
 router = APIRouter()
 
@@ -188,6 +189,9 @@ async def import_backup(
             restored["block_list"] = len(data["block_list"])
 
         await db.flush()
+
+        # Notify connected dashboard clients to refresh their views
+        await dashboard_broadcast(refresh="full", event="backup_restored")
 
         return {
             "message": "Backup restored successfully",

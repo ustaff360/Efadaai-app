@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import axios from 'axios'
+import { useAuth } from '../AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 
 const API = '/api/v1'
@@ -10,10 +11,17 @@ const TIME_PRESETS = [
   { value: 'yesterday', label: 'Yesterday' },
   { value: 'last_7_days', label: 'Last 7 Days' },
   { value: 'last_30_days', label: 'Last 30 Days' },
+  { value: 'last_3_months', label: 'Last 3 Months' },
+  { value: 'last_6_months', label: 'Last 6 Months' },
+  { value: 'last_year', label: 'Last Year' },
 ]
 
 function Dashboard() {
-  const [summary, setSummary] = useState(null)
+  const { token } = useAuth()
+  const [summary, setSummary] = useState({
+    total_calls: 0, total_callers: 0, repeat_callers: 0, repeat_rate: 0,
+    blocked_calls: 0, total_agents: 0, total_categories: 0, total_dids: 0, avg_call_duration: 0,
+  })
   const [agentStats, setAgentStats] = useState([])
   const [catStats, setCatStats] = useState([])
   const [didStats, setDidStats] = useState([])
@@ -21,25 +29,102 @@ function Dashboard() {
   const [preset, setPreset] = useState('last_30_days')
   const [activeTab, setActiveTab] = useState('agents')
   const [exporting, setExporting] = useState(false)
+  const [liveCall, setLiveCall] = useState(null)
+  const wsRef = useRef(null)
+  const reconnectTimeoutRef = useRef(null)
 
   const loadData = async () => {
     setLoading(true)
     try {
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        accept: 'application/json',
+      }
       const [s, a, c, d] = await Promise.all([
-        axios.get(`${API}/reports/summary/?preset=${preset}`),
-        axios.get(`${API}/reports/agents/?preset=${preset}`),
-        axios.get(`${API}/reports/categories/?preset=${preset}`),
-        axios.get(`${API}/reports/dids/?preset=${preset}`),
+        axios.get(`${API}/reports/summary/?preset=${preset}`, { headers }).catch(() => ({ data: null })),
+        axios.get(`${API}/reports/agents/summary/?preset=${preset}`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/reports/categories/?preset=${preset}`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/reports/dids/?preset=${preset}`, { headers }).catch(() => ({ data: [] })),
       ])
-      setSummary(s.data)
-      setAgentStats(a.data)
-      setCatStats(c.data)
-      setDidStats(d.data)
-    } catch (e) { console.error(e) }
+      setSummary(s.data || summary)
+      setAgentStats(Array.isArray(a.data) ? a.data : [])
+      setCatStats(Array.isArray(c.data) ? c.data : [])
+      setDidStats(Array.isArray(d.data) ? d.data : [])
+    } catch (e) {
+      console.error('Dashboard load error', e)
+    }
     setLoading(false)
   }
 
-  useEffect(() => { loadData() }, [preset])
+  useEffect(() => { loadData() }, [preset, token])
+
+  // WebSocket for live call events
+  useEffect(() => {
+    if (!token) return
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/dashboard/`
+
+    let ws
+    let reconnectTimeoutRef = { current: null }
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsUrl)
+
+        ws.onopen = () => {
+          console.log('Dashboard WebSocket connected')
+        }
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            const evt = data?.event || data?.type
+            if (evt === 'NEW_CALL_ROUTED' || evt === 'call_routed' || (data?.type === 'dashboard' && data?.call_id)) {
+              const candidate = {
+                id: data.call_id || data.data?.call_id || Date.now(),
+                caller_id: data.caller_id || data.callerNumber || data.data?.caller_id || data.data?.callerNumber || 'Unknown',
+                caller_number: data.callerNumber || data.caller_id || data.data?.caller_number || data.data?.caller_id || 'Unknown',
+                did: data.did || data.didNumber || data.data?.did || data.data?.didNumber || '-',
+                category: data.category || data.category_name || data.data?.category || data.data?.category_name || 'Unknown',
+                agent: data.agent_name || data.agent || data.data?.agent_name || data.data?.agent || 'Unassigned',
+                timestamp: data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString(),
+              }
+              const hasMeaningful = ['caller_number','category','agent'].some((k) => !['Unknown','Unassigned','-'].includes(candidate[k]))
+              if (hasMeaningful) setLiveCall(candidate)
+            }
+          } catch (e) {
+            console.error('WebSocket message parse error', e)
+          }
+        }
+
+        ws.onclose = () => {
+          console.log('Dashboard WebSocket disconnected, reconnecting...')
+          reconnectTimeoutRef.current = setTimeout(connect, 3000)
+        }
+
+        ws.onerror = (err) => {
+          console.error('Dashboard WebSocket error', err)
+        }
+      } catch (e) {
+        console.error('WebSocket connect error', e)
+        reconnectTimeoutRef.current = setTimeout(connect, 3000)
+      }
+    }
+
+    connect()
+
+    return () => {
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+      if (ws) {
+        ws.onclose = null
+        ws.onerror = null
+        try { ws.close() } catch (e) { /* ignore */ }
+      }
+    }
+  }, [token])
+
+  const dismissLiveCall = () => setLiveCall(null)
 
   const exportFile = async (format) => {
     setExporting(true)
@@ -54,7 +139,7 @@ function Dashboard() {
     setExporting(false)
   }
 
-  if (loading || !summary) return (
+  if (loading && summary.total_calls === 0) return (
     <div className="flex items-center justify-center py-20">
       <div className="text-text-gray text-sm">Loading dashboard...</div>
     </div>
@@ -86,8 +171,8 @@ function Dashboard() {
     { key: 'categories', label: 'Categories', count: catStats.length },
   ]
 
-  const agentChartData = agentStats.map(a => ({ name: a.agent_name, calls: a.total_calls, repeat: a.repeat_calls }))
-  const catChartData = catStats.map(c => ({ name: c.category_name, value: c.total_calls }))
+  const agentChartData = agentStats.map(a => ({ name: a.agent_name || '-', calls: a.total_calls, repeat: a.repeat_calls, today: a.today_calls || 0 }))
+  const catChartData = catStats.map(c => ({ name: c.category_name || 'Unnamed', calls: c.total_calls }))
 
   const getChartData = () => {
     if (activeTab === 'agents') return agentChartData
@@ -105,6 +190,42 @@ function Dashboard() {
 
   return (
     <div>
+      {/* Live Call Popup */}
+      {liveCall && (
+        <div className="fixed top-4 right-4 z-50 w-80 bg-white rounded-xl shadow-2xl border border-emerald-200 overflow-hidden animate-bounce-in">
+          <div className="bg-emerald-500 px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-white">
+              <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+              <span className="text-sm font-semibold">Live Call</span>
+            </div>
+            <button onClick={dismissLiveCall} className="text-white/80 hover:text-white transition">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div className="p-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-text-gray">Caller</span>
+              <span className="font-medium text-text-dark">{liveCall.caller_number}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-gray">DID</span>
+              <span className="font-mono text-xs text-navy bg-navy/5 px-2 py-0.5 rounded">{liveCall.did}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-gray">Category</span>
+              <span className="font-medium text-text-dark">{liveCall.category}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-gray">Agent</span>
+              <span className="font-medium text-emerald-700">{liveCall.agent}</span>
+            </div>
+            <div className="flex justify-between text-xs pt-2 border-t border-border">
+              <span className="text-text-muted">{liveCall.timestamp}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 mb-6">
         <div>
@@ -244,34 +365,37 @@ function Dashboard() {
                   <th className="px-5 py-3 font-medium">Agent</th>
                   <th className="px-5 py-3 font-medium">Extension</th>
                   <th className="px-5 py-3 font-medium text-right">Total Calls</th>
-                  <th className="px-5 py-3 font-medium text-right">Repeat</th>
+                  <th className="px-5 py-3 font-medium text-right">Unique Callers</th>
+                  <th className="px-5 py-3 font-medium text-right">Repeat Rate</th>
+                  <th className="px-5 py-3 font-medium text-right">Today Calls</th>
                   <th className="px-5 py-3 font-medium text-right">Avg Duration</th>
                 </tr>
               </thead>
               <tbody>
-                {agentStats.map((a, i) => (
+                {agentStats.map((a) => (
                   <tr key={a.agent_id} className="border-b border-border last:border-0 hover:bg-bg-light/50 transition">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-gradient-to-br from-primary/20 to-primary/10 rounded-full flex items-center justify-center text-primary text-xs font-bold">
-                          {a.agent_name[0].toUpperCase()}
+                          {(a.agent_name || '?')[0].toUpperCase()}
                         </div>
                         <span className="font-medium">{a.agent_name}</span>
                       </div>
                     </td>
                     <td className="px-5 py-3 text-text-gray font-mono text-xs">{a.extension}</td>
                     <td className="px-5 py-3 text-right font-bold text-navy">{a.total_calls}</td>
+                    <td className="px-5 py-3 text-right text-text-gray">{a.unique_callers}</td>
                     <td className="px-5 py-3 text-right">
-                      {a.repeat_calls > 0
-                        ? <span className="text-orange-600 font-medium">{a.repeat_calls}</span>
-                        : <span className="text-text-muted">0</span>
-                      }
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 text-orange-700">
+                        {a.repeat_rate}%
+                      </span>
                     </td>
+                    <td className="px-5 py-3 text-right text-text-gray">{Number(a.today_calls ?? 0) || 0}</td>
                     <td className="px-5 py-3 text-right text-text-gray">{formatDuration(a.avg_duration)}</td>
                   </tr>
                 ))}
                 {agentStats.length === 0 && (
-                  <tr><td colSpan="5" className="px-5 py-10 text-center text-text-muted">No agent data for this period</td></tr>
+                  <tr><td colSpan="7" className="px-5 py-10 text-center text-text-muted">No agent data for this period</td></tr>
                 )}
               </tbody>
             </table>
@@ -285,42 +409,49 @@ function Dashboard() {
                   <th className="px-5 py-3 font-medium">DIDs</th>
                   <th className="px-5 py-3 font-medium text-right">Total Calls</th>
                   <th className="px-5 py-3 font-medium text-right">Unique Callers</th>
+                  <th className="px-5 py-3 font-medium text-right">Total Agents</th>
                   <th className="px-5 py-3 font-medium text-right">Repeat Rate</th>
+                  <th className="px-5 py-3 font-medium text-right">Today Calls</th>
                 </tr>
               </thead>
               <tbody>
-                {catStats.map(c => {
-  // Find DIDs belonging to this category
-                  const catDids = didStats.filter(d => d.category_name === c.category_name)
-                  return (
-                    <tr key={c.category_id} className="border-b border-border last:border-0 hover:bg-bg-light/50 transition">
-                      <td className="px-5 py-3 font-medium">{c.category_name}</td>
-                      <td className="px-5 py-3">
-                        {catDids.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {catDids.map(d => (
-                              <span key={d.did_id} className="inline-block bg-navy/10 text-navy text-xs px-2 py-0.5 rounded font-mono">
-                                {d.did_number}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-text-muted text-xs">No DIDs</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right font-bold text-navy">{c.total_calls}</td>
-                      <td className="px-5 py-3 text-right text-text-gray">{c.unique_callers}</td>
-                      <td className="px-5 py-3 text-right">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                          {c.repeat_rate}%
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {catStats.length === 0 && (
-                  <tr><td colSpan="5" className="px-5 py-10 text-center text-text-muted">No category data for this period</td></tr>
-                )}
+              {catStats.map(c => {
+               const catDids = didStats.filter(d => d.category_name === c.category_name)
+               return (
+                 <tr key={c.category_id} className="border-b border-border last:border-0 hover:bg-bg-light/50 transition">
+                   <td className="px-5 py-3 font-medium">{c.category_name}</td>
+                   <td className="px-5 py-3">
+                     {catDids.length > 0 ? (
+                       <div className="flex flex-wrap gap-1">
+                         {catDids.map(d => (
+                           <span key={d.did_id} className="inline-block bg-navy/10 text-navy text-xs px-2 py-0.5 rounded font-mono">
+                             {d.did_number}
+                           </span>
+                         ))}
+                       </div>
+                     ) : (
+                       <span className="text-text-muted text-xs">No DIDs</span>
+                     )}
+                   </td>
+                   <td className="px-5 py-3 text-right font-bold text-navy">{c.total_calls}</td>
+                   <td className="px-5 py-3 text-right text-text-gray">{c.unique_callers}</td>
+                   <td className="px-5 py-3 text-right">
+                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                       {c.total_agents}
+                     </span>
+                   </td>
+                   <td className="px-5 py-3 text-right">
+                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                       {c.repeat_rate}%
+                     </span>
+                   </td>
+                   <td className="px-5 py-3 text-right text-text-gray">{Number(c.today_calls ?? 0) || 0}</td>
+                 </tr>
+               )
+              })}
+              {catStats.length === 0 && (
+               <tr><td colSpan="8" className="px-5 py-10 text-center text-text-muted">No category data for this period</td></tr>
+              )}
               </tbody>
             </table>
           )}

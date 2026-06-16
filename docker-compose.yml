@@ -55,6 +55,7 @@ services:
       AGENT_STATUS_TTL: 60
     volumes:
       - ./ami-watcher:/app/ami-watcher
+      - ./backend/app:/app/app
     env_file:
       - backend/app/.env
 

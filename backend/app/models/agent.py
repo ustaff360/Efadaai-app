@@ -12,7 +12,6 @@ class Agent(Base):
     name = Column(String(100), nullable=False)
     extension = Column(String(20), unique=True, nullable=False, index=True)
     email = Column(String(255), nullable=True)
-    default_weight = Column(Integer, default=100, nullable=False)
     status = Column(String(20), default="active", nullable=False)  # active, inactive
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

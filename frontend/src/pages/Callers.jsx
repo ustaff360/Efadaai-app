@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 
 const API = '/api/v1'
+const PAGE_SIZE_OPTIONS = [25, 50, 75, 100]
+const PAGE_SIZE_DEFAULT = 50
 
 function Callers() {
   const [callers, setCallers] = useState([])
@@ -9,6 +11,9 @@ function Callers() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('callers')
   const [search, setSearch] = useState('')
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT)
+  const [callerPage, setCallerPage] = useState(1)
+  const [callersTotalItems, setCallersTotalItems] = useState(0)
   const [showBlockForm, setShowBlockForm] = useState(false)
   const [blockForm, setBlockForm] = useState({ phone_number: '', reason: '', destination: 'voicemail', destination_value: '' })
   const [selected, setSelected] = useState(new Set())
@@ -20,12 +25,24 @@ function Callers() {
 
   const loadCallers = async () => {
     try {
-      const params = search ? `?search=${encodeURIComponent(search)}` : ''
-      const res = await axios.get(`${API}/callers/${params}`)
-      setCallers(res.data)
-    } catch (e) { console.error(e) }
-    setLoading(false)
-    setSelected(new Set())
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      params.set('page', String(callerPage))
+      params.set('limit', String(pageSize))
+      const res = await axios.get(`${API}/callers/?${params.toString()}`)
+      const items = Array.isArray(res.data) ? res.data : []
+      const totalFromHeaders = Number(res.headers?.['x-total-count'] || res.headers?.['x-total'] || 0)
+      setCallers(items)
+      setCallersTotalItems(totalFromHeaders || items.length)
+    } catch (e) {
+      console.error(e)
+      setCallers([])
+      setCallersTotalItems(0)
+    } finally {
+      setLoading(false)
+      setSelected(new Set())
+    }
   }
 
   const loadBlocklist = async () => {
@@ -40,7 +57,8 @@ function Callers() {
     loadBlocklist()
   }, [])
 
-  useEffect(() => { loadCallers() }, [search])
+  useEffect(() => { setCallerPage(1) }, [search, pageSize])
+  useEffect(() => { loadCallers() }, [search, callerPage, pageSize])
 
   const toggleSelect = (id) => {
     const next = new Set(selected)
@@ -125,7 +143,22 @@ function Callers() {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
         <div>
           <h2 className="text-2xl font-heading font-bold text-navy">Callers</h2>
-          <p className="text-sm text-text-gray mt-0.5">{callers.length} caller{callers.length !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-text-gray mt-0.5">{callersTotalItems.toLocaleString()} total caller{callersTotalItems === 1 ? '' : 's'}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-text-gray">Show</label>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="border border-border rounded-lg px-2 py-1.5 text-sm bg-white"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-text-gray">per page</span>
         </div>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
@@ -229,11 +262,63 @@ function Callers() {
                 {callers.length === 0 && (
                   <tr><td colSpan="8" className="px-4 py-8 text-center text-text-muted">No callers found.</td></tr>
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                </tbody>
+                </table>
+                </div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4">
+                <div className="text-xs text-text-gray">
+                Showing {(callerPage - 1) * pageSize + 1}-
+                {Math.min(callerPage * pageSize, callersTotalItems)} of {callersTotalItems.toLocaleString()} callers
+                </div>
+                <div className="flex items-center gap-1">
+                <button
+                  disabled={callerPage <= 1}
+                  onClick={() => setCallerPage((p) => Math.max(1, p - 1))}
+                  className={`px-3 py-1.5 rounded-lg border border-border text-xs font-medium ${callerPage <= 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-bg-light'}`}
+                >
+                  Prev
+                </button>
+                {(() => {
+                  const totalPages = Math.max(1, Math.ceil(callersTotalItems / pageSize))
+                  const getPages = () => {
+                    const pages = new Set()
+                    if (totalPages <= 7) {
+                      Array.from({ length: totalPages }, (_, i) => i + 1).forEach((n) => pages.add(n))
+                      return Array.from(pages)
+                    }
+                    pages.add(1)
+                    pages.add(totalPages)
+                    const start = Math.max(2, callerPage - 1)
+                    const end = Math.min(totalPages - 1, callerPage + 1)
+                    pages.add(start)
+                    pages.add(end)
+                    if (start > 2) pages.add('...')
+                    if (end < totalPages - 1) pages.add('...')
+                    return Array.from(pages)
+                  }
+                  const pages = getPages()
+                  return pages.map((p, i) => (
+                    <button
+                      key={`${p}-${i}`}
+                      disabled={p === '...'}
+                      onClick={() => p !== '...' && setCallerPage(Number(p))}
+                      className={`min-w-[2rem] px-3 py-1.5 rounded-lg border border-border text-xs font-medium ${p === callerPage ? 'bg-navy text-white border-navy' : p === '...' ? 'opacity-50 cursor-default' : 'hover:bg-bg-light'}`}
+                    >
+                      {p}
+                    </button>
+                  ))
+                })()}
+                <button
+                  disabled={callerPage >= Math.max(1, Math.ceil(callersTotalItems / pageSize))}
+                  onClick={() => setCallerPage((p) => Math.min(Math.ceil(callersTotalItems / pageSize), p + 1))}
+                  className={`px-3 py-1.5 rounded-lg border border-border text-xs font-medium ${callerPage >= Math.max(1, Math.ceil(callersTotalItems / pageSize)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-bg-light'}`}
+                >
+                  Next
+                </button>
+                </div>
+                </div>
+                </div>
+                )}
 
       {/* Block List Tab */}
       {activeTab === 'blocked' && (

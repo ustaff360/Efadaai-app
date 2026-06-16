@@ -1,10 +1,12 @@
 """
 Callers API — Caller Management, History, Blocklist
 """
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import JSONResponse
 from app.core.database import get_db
 from app.models.caller import Caller, CallLog, BlockList
 from app.models.agent import Agent
@@ -95,25 +97,28 @@ async def list_callers(
     db: AsyncSession = Depends(get_db),
 ):
     """List all tracked callers with optional search and block filter"""
-    query = select(Caller)
+    base_query = select(Caller)
     if search:
-        query = query.where(
+        base_query = base_query.where(
             or_(
                 Caller.caller_number.ilike(f"%{search}%"),
                 Caller.caller_name.ilike(f"%{search}%"),
             )
         )
     if blocked is not None:
-        query = query.where(Caller.is_blocked == blocked)
-    query = query.order_by(Caller.last_call_at.desc().nullslast())
-    query = query.offset((page - 1) * limit).limit(limit)
+        base_query = base_query.where(Caller.is_blocked == blocked)
+
+    total_count_query = base_query.with_only_columns(func.count(Caller.id))
+    total_count_result = await db.execute(total_count_query)
+    total_count = total_count_result.scalar_one() or 0
+
+    query = base_query.order_by(Caller.last_call_at.desc().nullslast()).offset((page - 1) * limit).limit(limit)
     result = await db.execute(query)
     callers = result.scalars().all()
 
     # Enrich with last call details (agent, category, DID)
     enriched = []
     for caller in callers:
-        # Get the most recent call log for this caller
         last_call_result = await db.execute(
             select(CallLog, Agent, Category, DID)
             .outerjoin(Agent, CallLog.agent_id == Agent.id)
@@ -139,7 +144,8 @@ async def list_callers(
             last_agent_extension=last_agent.extension if last_agent else None,
             last_did=last_did.did_number if last_did else None,
         ))
-    return enriched
+
+    return JSONResponse(content=[item.model_dump() for item in enriched], headers={"X-Total-Count": str(total_count)})
 
 
 @router.get("/{caller_number}/history/", response_model=list[CallLogResponse])

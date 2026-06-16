@@ -1,16 +1,15 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 
 const AuthContext = createContext(null)
-
 const API = '/api/v1'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [token, setToken] = useState(localStorage.getItem('token'))
+  const [token, setToken] = useState(() => localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)
+  const initRef = useRef(false)
 
-  // Set axios default header when token changes
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -21,28 +20,36 @@ export function AuthProvider({ children }) {
     }
   }, [token])
 
-  // Check if token is valid on mount
   useEffect(() => {
+    if (initRef.current) return
+    initRef.current = true
+
     const initAuth = async () => {
-      if (token) {
-        try {
-          const res = await axios.get(`${API}/auth/me/`)
-          setUser(res.data)
-        } catch (e) {
-  // Token expired or invalid
-          setToken(null)
-          setUser(null)
+      try {
+        if (token) {
+          const res = await axios.get(`${API}/auth/me/`).catch(() => null)
+          if (res?.data) {
+            setUser(res.data)
+            setLoading(false)
+            return
+          }
         }
+      } catch {
+        // invalidate token below
       }
+      setToken(null)
+      setUser(null)
       setLoading(false)
     }
+
     initAuth()
-  }, [])
+  }, [token])
 
   const login = async (username, password) => {
     const res = await axios.post(`${API}/auth/login/`, { username, password })
     setToken(res.data.access_token)
     setUser(res.data.user)
+    setLoading(false)
     return res.data.user
   }
 
@@ -50,16 +57,18 @@ export function AuthProvider({ children }) {
     const res = await axios.post(`${API}/auth/register/`, data)
     setToken(res.data.access_token)
     setUser(res.data.user)
+    setLoading(false)
     return res.data.user
   }
 
   const logout = () => {
     setToken(null)
     setUser(null)
+    setLoading(false)
   }
 
   const isAdmin = () => user?.role === 'admin'
-  const isManager = () => user?.role === 'admin' || user?.role === 'manager'
+  const isManager = () => user?.role === 'admin' || user?.role === 'supervisor'
 
   return (
     <AuthContext.Provider value={{ user, token, loading, login, register, logout, isAdmin, isManager }}>

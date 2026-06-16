@@ -12,10 +12,6 @@ class Category(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    customer_name = Column(String(100), nullable=True)
-    contact_number = Column(String(30), nullable=True)
-    owner_email = Column(String(255), nullable=True)
-    locations = Column(JSON, default=list, nullable=True)
     status = Column(String(20), default="active", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -50,7 +46,7 @@ class CategoryAgent(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
     agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)
-    override_weight = Column(Integer, nullable=True)  # NULL = use default_weight
+    override_weight = Column(Integer, nullable=False)
     routing_strategy = Column(String(20), default="weighted", nullable=False)  # weighted, round_robin, sequential
     active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

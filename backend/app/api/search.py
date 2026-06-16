@@ -95,10 +95,9 @@ async def global_search(
     # Search Categories
     cat_result = await db.execute(
         select(Category)
-        .where(or_(
+        .where(
             Category.name.ilike(query),
-            Category.customer_name.ilike(query),
-        ))
+        )
         .limit(per_type)
     )
     for c in cat_result.scalars().all():
@@ -106,8 +105,8 @@ async def global_search(
             type="category",
             id=c.id,
             title=c.name,
-            subtitle=c.customer_name or "Category",
-            url=f"/categories",
+            subtitle="Category",
+            url="/categories",
         ))
 
     return results[:limit]

@@ -1,0 +1,54 @@
+{
+  "timestamp": 1780867762.9287143,
+  "results": {
+    "nginx_root": {
+      "url": "http://localhost:83/",
+      "status_code": 200,
+      "final_url": "http://localhost:83/",
+      "content_type": "text/html",
+      "body_preview": "<!DOCTYPE html> <html lang=\"en\">   <head>     <meta charset=\"UTF-8\" />     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />     <title>Efada.Ai - Smart Call Routing</title>     <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">     <link href=\"https://fonts.googleapi"
+    },
+    "backend_health": {
+      "url": "http://localhost:8002/api/v1/health/",
+      "status_code": 307,
+      "final_url": "http://localhost:8002/api/v1/health/",
+      "content_type": null,
+      "body_preview": ""
+    },
+    "nginx_health": {
+      "url": "http://localhost:83/health",
+      "status_code": 200,
+      "final_url": "http://localhost:83/health",
+      "content_type": "application/json",
+      "body_preview": "{\"status\":\"healthy\",\"service\":\"Smart Agent Routing API\",\"version\":\"1.0.0\"}"
+    },
+    "backend_callhistory": {
+      "url": "http://localhost:8002/api/v1/reports/call_history/?limit=2",
+      "status_code": 404,
+      "final_url": "http://localhost:8002/api/v1/reports/call_history/?limit=2",
+      "content_type": "application/json",
+      "body_preview": "{\"detail\":\"Not Found\"}"
+    },
+    "backend_agents": {
+      "url": "http://localhost:8002/api/v1/agents/",
+      "status_code": 200,
+      "final_url": "http://localhost:8002/api/v1/agents/",
+      "content_type": "application/json",
+      "body_preview": "[{\"id\":3,\"name\":\"Marwa Sales\",\"extension\":\"1002\",\"email\":\"marwa@example.com\",\"default_weight\":50,\"status\":\"active\",\"categories\":[{\"id\":9,\"name\":\"Sales \",\"weight\":30}]},{\"id\":2,\"name\":\"Ahsan  Sales\",\"extension\":\"1001\",\"email\":\"ahsan@example.com\",\"default_weight\":50,\"status\":\"active\",\"categories\":[{\"i"
+    },
+    "backend_categories": {
+      "url": "http://localhost:8002/api/v1/categories/",
+      "status_code": 200,
+      "final_url": "http://localhost:8002/api/v1/categories/",
+      "content_type": "application/json",
+      "body_preview": "[{\"id\":9,\"name\":\"Sales \",\"description\":\"Sales teat\",\"customer_name\":\"Sales \",\"contact_number\":\"99999999\",\"owner_email\":\"\",\"locations\":[],\"status\":\"active\",\"dids\":[{\"id\":10,\"did_number\":\"6312460606\",\"description\":\"Sales DID\"},{\"id\":11,\"did_number\":\"6312460607\",\"description\":\"Sales DID\"}]}]"
+    },
+    "frontend_root": {
+      "url": "http://localhost:3002/",
+      "status_code": 200,
+      "final_url": "http://localhost:3002/",
+      "content_type": "text/html",
+      "body_preview": "<!DOCTYPE html> <html lang=\"en\">   <head>     <meta charset=\"UTF-8\" />     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />     <title>Efada.Ai - Smart Call Routing</title>     <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">     <link href=\"https://fonts.googleapi"
+    }
+  }
+}

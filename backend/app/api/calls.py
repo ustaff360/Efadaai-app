@@ -2,6 +2,7 @@
 Call Lifecycle API — Start, terminate, and track active calls
 """
 from datetime import datetime, timezone
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, and_, or_, func
@@ -103,9 +104,9 @@ async def start_call(request: CallStartRequest, db: AsyncSession = Depends(get_d
     )
     agent_list = []
     for ca, agent in agents_result.all():
-        weight = ca.override_weight if ca.override_weight else agent.default_weight
-        agent_list.append({"agent": agent, "weight": weight})
-
+        if not ca.override_weight:
+            continue
+        agent_list.append({"agent": agent, "weight": ca.override_weight})
     if not agent_list:
         raise HTTPException(status_code=503, detail="No agents available for this category")
 
@@ -163,6 +164,7 @@ async def start_call(request: CallStartRequest, db: AsyncSession = Depends(get_d
     now = datetime.now(timezone.utc)
     call_log = CallLog(
         caller_number=request.caller_number,
+        call_uuid=str(uuid.uuid4()),
         agent_id=selected_agent.id,
         category_id=category.id,
         did_id=did.id,

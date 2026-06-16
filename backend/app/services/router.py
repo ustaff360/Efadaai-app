@@ -2,6 +2,7 @@
 Routing Engine Service
 Handles weighted random, round-robin, sequential selection and sticky agent logic
 """
+import logging
 import random
 from datetime import datetime, timezone
 from sqlalchemy import select, and_, func
@@ -11,6 +12,52 @@ from app.models.category import CategoryAgent, DID, Category
 from app.models.agent import Agent
 from app.core.redis import get_agent_status, get_sticky_agent, set_sticky_agent
 from app.core.config import settings
+from app.services.audit_service import log_event
+
+
+logger = logging.getLogger("routing")
+AUDIT_LOGGER_NAME = "routing.audit"
+_audit_logger = logging.getLogger(AUDIT_LOGGER_NAME)
+
+
+def _as_str(value) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _as_str_list(value) -> list[str] | None:
+    if not value:
+        return None
+    return [str(item) for item in value]
+
+
+def _as_weight_values(value) -> list[str] | None:
+    if not value:
+        return None
+    return [str(item) for item in value]
+
+
+def _audit_extra(data: dict) -> dict:
+    extras = {}
+    key_map = {
+        "caller_id": "caller_id",
+        "did": "did",
+        "category": "category",
+        "routing_strategy": "routing_strategy",
+        "is_new_caller": "is_new_caller",
+        "sticky_hit": "sticky_hit",
+        "selected_agent": "selected_agent",
+        "selected_extension": "selected_extension",
+        "reason_for_selection": "reason_for_selection",
+        "available_agents": "available_agents",
+        "weights_used": "weights_used",
+    }
+    for src, dst in key_map.items():
+        value = data.get(src)
+        if value is not None:
+            extras[dst] = value
+    return extras
 
 
 class RoutingService:
@@ -63,23 +110,46 @@ class RoutingService:
         # Step 6: Check sticky agent (repeat caller)
         selected_agent = None
         is_repeat = False
+        sticky_hit = False
 
         sticky_agent_id = await get_sticky_agent(caller_number, category.id)
+        logger.info(
+            "routing sticky lookup",
+            extra={"caller": caller_number, "category_id": category.id, "sticky_agent_id": sticky_agent_id},
+        )
         if sticky_agent_id:
             for agent_info in idle_agents:
                 if agent_info["agent"].id == sticky_agent_id:
                     selected_agent = agent_info["agent"]
                     is_repeat = True
+                    sticky_hit = True
                     break
 
         # Step 7: Strategy-based selection if no sticky match
+        select_reason = None
         if not selected_agent:
             if strategy == "round_robin":
                 selected_agent = await self._round_robin_selection(idle_agents, category.id)
+                select_reason = "round_robin"
             elif strategy == "sequential":
                 selected_agent = self._sequential_selection(idle_agents)
+                select_reason = "sequential"
             else:  # weighted (default)
                 selected_agent = self._weighted_random_selection(idle_agents)
+                select_reason = "weighted"
+
+        logger.info(
+            "routing decision",
+            extra={
+                "caller": caller_number,
+                "category_id": category.id,
+                "strategy": strategy,
+                "selected_agent_id": selected_agent.id,
+                "is_repeat": is_repeat,
+                "idle_agent_ids": [a["agent"].id for a in idle_agents],
+                "idle_agent_weights": [a["weight"] for a in idle_agents],
+            },
+        )
 
         # Step 8: Update caller tracking
         await self._update_caller(caller_number)
@@ -87,7 +157,30 @@ class RoutingService:
         # Step 9: Write call log
         await self._write_call_log(caller_number, selected_agent.id, category.id, is_repeat)
 
-        # Step 10: Set sticky agent
+        # Step 10: Audit selection decision (non-blocking)
+        try:
+            routing_strategy_label = "sticky" if sticky_hit else "weighted"
+            reason_for_selection = (
+                select_reason or ("sticky hit" if sticky_hit else "weighted")
+            )
+            await log_event(
+                self.db,
+                caller_id=caller_number,
+                did=dialed_number,
+                category=category.name if category else None,
+                routing_strategy=routing_strategy_label,
+                is_new_caller=not is_repeat,
+                sticky_hit=sticky_hit,
+                available_agents=[a["agent"].extension for a in idle_agents],
+                weights_used=[a["weight"] for a in idle_agents],
+                selected_agent=selected_agent.name if selected_agent else None,
+                selected_extension=selected_agent.extension if selected_agent else None,
+                reason_for_selection=reason_for_selection,
+            )
+        except Exception as audit_exc:
+            logger.exception("audit log failed: %s", audit_exc)
+
+        # Step 11: Set sticky agent
         await set_sticky_agent(caller_number, category.id, selected_agent.id, settings.STICKY_WINDOW_DAYS)
 
         return self._build_response(selected_agent, category, is_repeat, strategy)
@@ -134,10 +227,40 @@ class RoutingService:
                 )
             )
         )
+        raw_rows = result.all()
+        logger.info(
+            "agent pool raw db rows",
+            extra={
+                "category_id": category_id,
+                "raw_count": len(raw_rows),
+                "raw": [
+                    {
+                        "agent_id": ca.agent_id,
+                        "agent_extension": agent.extension,
+                        "agent_name": agent.name,
+                        "agent_status": agent.status,
+                        "ca_active": ca.active,
+                        "override_weight": ca.override_weight,
+                    }
+                    for ca, agent in raw_rows
+                ],
+            },
+        )
         agents = []
-        for ca, agent in result.all():
+        for ca, agent in raw_rows:
             weight = ca.override_weight if ca.override_weight is not None else agent.default_weight
             agents.append({"agent": agent, "weight": weight})
+        logger.info(
+            "agent pool after active filter",
+            extra={
+                "category_id": category_id,
+                "active_count": len(agents),
+                "active": [
+                    {"agent_id": a["agent"].id, "extension": a["agent"].extension, "weight": a["weight"]}
+                    for a in agents
+                ],
+            },
+        )
         return agents
 
     async def _filter_idle_agents(self, agents: list[dict]) -> list[dict]:
