@@ -34,6 +34,7 @@ class AgentStats(BaseModel):
     agent_id: int
     agent_name: str
     extension: str
+    weight: float | None = None
     total_calls: int
     repeat_calls: int
     avg_duration: float
@@ -357,19 +358,21 @@ async def get_category_report(category_id: int, preset: str = Query("last_30_day
     agent_result = await db.execute(
         select(
             Agent.id, Agent.name, Agent.extension,
+            CategoryAgent.override_weight,
             func.count(CallLog.id).label("total_calls"),
             func.sum(case((CallLog.is_repeat == True, 1), else_=0)).label("repeat_calls"),
             func.avg(CallLog.duration_sec).label("avg_duration"),
         )
         .outerjoin(CallLog, and_(CallLog.agent_id == Agent.id, CallLog.category_id == category_id, CallLog.call_start >= start))
         .join(CategoryAgent, and_(CategoryAgent.agent_id == Agent.id, CategoryAgent.category_id == category_id))
-        .group_by(Agent.id, Agent.name, Agent.extension)
+        .group_by(Agent.id, Agent.name, Agent.extension, CategoryAgent.override_weight)
     )
     for row in agent_result.all():
         agent_stats[row.id] = {
             "agent_id": row.id,
             "agent_name": row.name,
             "extension": row.extension,
+            "weight": row.override_weight,
             "total_calls": row.total_calls or 0,
             "repeat_calls": row.repeat_calls or 0,
             "avg_duration": round(float(row.avg_duration or 0), 2),

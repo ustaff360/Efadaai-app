@@ -198,6 +198,7 @@ async def delete_caller(caller_id: int, db: AsyncSession = Depends(get_db)):
         await db.delete(log)
     await db.delete(caller)
     await db.flush()
+    await db.commit()
     return {"message": "Caller and history deleted"}
 
 

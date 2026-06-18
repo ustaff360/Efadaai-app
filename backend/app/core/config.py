@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     STICKY_WINDOW_DAYS: int = 30
     ALLOWED_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:3002,http://localhost:83,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:3002,http://127.0.0.1:83,*"
 
+    # Agent availability
+    ENABLE_AGENT_STATUS_CHECK: bool = False
+
     # AMI / Routing
     ASTERISK_HOST: str = "127.0.0.1"
     ASTERISK_PORT: int = 5038
@@ -47,3 +50,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+

@@ -1,23 +1,32 @@
 """
 Routing Engine Service
-Handles weighted random, round-robin, sequential selection and sticky agent logic
+Handles smooth weighted round-robin, round-robin, weighted random, sequential selection and sticky agent logic.
 """
 import logging
 import random
+import uuid
 from datetime import datetime, timezone
+from typing import Any
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.caller import Caller, CallLog, BlockList
 from app.models.category import CategoryAgent, DID, Category
 from app.models.agent import Agent
-from app.core.redis import get_agent_status, get_sticky_agent, set_sticky_agent
+from app.core.redis import get_sticky_agent, set_sticky_agent
 from app.core.config import settings
 from app.services.audit_service import log_event
+from app.services.agent_availability import build_availability_provider
 
 
 logger = logging.getLogger("routing")
 AUDIT_LOGGER_NAME = "routing.audit"
 _audit_logger = logging.getLogger(AUDIT_LOGGER_NAME)
+_availability_provider = build_availability_provider()
+logger.info(
+    "agent status check %s",
+    "ENABLED" if settings.ENABLE_AGENT_STATUS_CHECK else "DISABLED",
+    extra={"enable_agent_status_check": settings.ENABLE_AGENT_STATUS_CHECK},
+)
 
 
 def _as_str(value) -> str | None:
@@ -65,6 +74,9 @@ class RoutingService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        from app.services.swrr import SmoothWeightedRoundRobin
+        from app.core.redis import get_redis
+        self._swrr = SmoothWeightedRoundRobin()
 
     async def route_call(self, caller_number: str, dialed_number: str) -> dict:
         """
@@ -75,6 +87,14 @@ class RoutingService:
         4. If no sticky or sticky busy → strategy-based selection
         5. Return selected agent or blocked response
         """
+        logger.info(
+            "ROUTE_IN",
+            extra={
+                "caller_number": caller_number,
+                "dialed_number": dialed_number,
+            },
+        )
+
         # Step 1: Check blocklist
         blocked = await self._check_blocklist(caller_number)
         if blocked:
@@ -100,25 +120,18 @@ class RoutingService:
         if not agents:
             raise ValueError(f"No agents assigned to category: {category.name}")
 
-        # Step 5: Get idle agents
-        idle_agents = await self._filter_idle_agents(agents)
-        if not idle_agents:
-            # All agents busy — return first agent as fallback
-            selected_agent = agents[0]["agent"]
-            return self._build_response(selected_agent, category, False, strategy)
+        # Step 5: Apply configurable agent availability filtering.
+        eligible_agents = await self._apply_availability_filter(agents, category.id)
 
         # Step 6: Check sticky agent (repeat caller)
         selected_agent = None
         is_repeat = False
         sticky_hit = False
 
-        sticky_agent_id = await get_sticky_agent(caller_number, category.id)
-        logger.info(
-            "routing sticky lookup",
-            extra={"caller": caller_number, "category_id": category.id, "sticky_agent_id": sticky_agent_id},
-        )
+        sticky_agent_id = await get_sticky_agent(caller_number, int(category.id))
+        weighted_executed = False
         if sticky_agent_id:
-            for agent_info in idle_agents:
+            for agent_info in eligible_agents:
                 if agent_info["agent"].id == sticky_agent_id:
                     selected_agent = agent_info["agent"]
                     is_repeat = True
@@ -129,14 +142,24 @@ class RoutingService:
         select_reason = None
         if not selected_agent:
             if strategy == "round_robin":
-                selected_agent = await self._round_robin_selection(idle_agents, category.id)
+                selected_agent = await self._round_robin_selection(eligible_agents, category.id)
                 select_reason = "round_robin"
             elif strategy == "sequential":
-                selected_agent = self._sequential_selection(idle_agents)
+                selected_agent = self._sequential_selection(eligible_agents)
                 select_reason = "sequential"
-            else:  # weighted (default)
-                selected_agent = self._weighted_random_selection(idle_agents)
-                select_reason = "weighted"
+            elif strategy == "weighted_random":
+                selected_agent = self._weighted_random_selection(eligible_agents)
+                select_reason = "weighted_random"
+            elif strategy == "least_calls":
+                selected_agent = self._least_calls_selection(eligible_agents)
+                select_reason = "least_calls"
+            elif strategy == "longest_idle":
+                selected_agent = self._longest_idle_selection(eligible_agents)
+                select_reason = "longest_idle"
+            else:
+                selected_agent = await self._smooth_weighted_round_robin(eligible_agents, category.id)
+                select_reason = "smooth_weighted_rr"
+            weighted_executed = True
 
         logger.info(
             "routing decision",
@@ -146,8 +169,8 @@ class RoutingService:
                 "strategy": strategy,
                 "selected_agent_id": selected_agent.id,
                 "is_repeat": is_repeat,
-                "idle_agent_ids": [a["agent"].id for a in idle_agents],
-                "idle_agent_weights": [a["weight"] for a in idle_agents],
+                "eligible_agent_ids": [a["agent"].id for a in eligible_agents],
+                "eligible_agent_weights": [a["weight"] for a in eligible_agents],
             },
         )
 
@@ -159,10 +182,8 @@ class RoutingService:
 
         # Step 10: Audit selection decision (non-blocking)
         try:
-            routing_strategy_label = "sticky" if sticky_hit else "weighted"
-            reason_for_selection = (
-                select_reason or ("sticky hit" if sticky_hit else "weighted")
-            )
+            routing_strategy_label = "sticky" if sticky_hit else select_reason or "weighted"
+            reason_for_selection = select_reason or ("sticky hit" if sticky_hit else "weighted")
             await log_event(
                 self.db,
                 caller_id=caller_number,
@@ -171,8 +192,8 @@ class RoutingService:
                 routing_strategy=routing_strategy_label,
                 is_new_caller=not is_repeat,
                 sticky_hit=sticky_hit,
-                available_agents=[a["agent"].extension for a in idle_agents],
-                weights_used=[a["weight"] for a in idle_agents],
+                available_agents=[a["agent"].extension for a in eligible_agents],
+                weights_used=[a["weight"] for a in eligible_agents],
                 selected_agent=selected_agent.name if selected_agent else None,
                 selected_extension=selected_agent.extension if selected_agent else None,
                 reason_for_selection=reason_for_selection,
@@ -185,6 +206,12 @@ class RoutingService:
 
         return self._build_response(selected_agent, category, is_repeat, strategy)
 
+    async def _apply_availability_filter(self, agents: list[dict], category_id: int) -> list[dict]:
+        filtered = await _availability_provider.filter_by_availability(agents, category_id=category_id)
+        if filtered is None:
+            return agents
+        return filtered or agents
+
     async def _check_blocklist(self, caller_number: str) -> BlockList | None:
         """Check if caller is in blocklist"""
         result = await self.db.execute(
@@ -196,9 +223,7 @@ class RoutingService:
 
     async def _get_category_by_did(self, dialed_number: str) -> Category | None:
         """Lookup category by DID number"""
-        result = await self.db.execute(
-            select(DID).where(DID.did_number == dialed_number)
-        )
+        result = await self.db.execute(select(DID).where(DID.did_number == dialed_number))
         did = result.scalar_one_or_none()
         if not did:
             return None
@@ -207,9 +232,9 @@ class RoutingService:
     async def _get_category_strategy(self, category_id: int) -> str:
         """Get routing strategy for category (from first agent assignment)"""
         result = await self.db.execute(
-            select(CategoryAgent.routing_strategy).where(
-                and_(CategoryAgent.category_id == category_id, CategoryAgent.active == True)
-            ).limit(1)
+            select(CategoryAgent.routing_strategy)
+            .where(and_(CategoryAgent.category_id == category_id, CategoryAgent.active == True))
+            .limit(1)
         )
         row = result.scalar_one_or_none()
         return row or "weighted"
@@ -228,49 +253,11 @@ class RoutingService:
             )
         )
         raw_rows = result.all()
-        logger.info(
-            "agent pool raw db rows",
-            extra={
-                "category_id": category_id,
-                "raw_count": len(raw_rows),
-                "raw": [
-                    {
-                        "agent_id": ca.agent_id,
-                        "agent_extension": agent.extension,
-                        "agent_name": agent.name,
-                        "agent_status": agent.status,
-                        "ca_active": ca.active,
-                        "override_weight": ca.override_weight,
-                    }
-                    for ca, agent in raw_rows
-                ],
-            },
-        )
-        agents = []
+        agents: list[dict] = []
         for ca, agent in raw_rows:
-            weight = ca.override_weight if ca.override_weight is not None else agent.default_weight
-            agents.append({"agent": agent, "weight": weight})
-        logger.info(
-            "agent pool after active filter",
-            extra={
-                "category_id": category_id,
-                "active_count": len(agents),
-                "active": [
-                    {"agent_id": a["agent"].id, "extension": a["agent"].extension, "weight": a["weight"]}
-                    for a in agents
-                ],
-            },
-        )
+            weight = ca.override_weight if ca.override_weight is not None else 0
+            agents.append({"agent": agent, "weight": int(weight)})
         return agents
-
-    async def _filter_idle_agents(self, agents: list[dict]) -> list[dict]:
-        """Filter agents to only idle ones using Redis status"""
-        idle_agents = []
-        for agent_info in agents:
-            status = await get_agent_status(agent_info["agent"].extension)
-            if status == "idle":
-                idle_agents.append(agent_info)
-        return idle_agents
 
     def _weighted_random_selection(self, agents: list[dict]) -> Agent:
         """Weighted random selection among agents"""
@@ -289,6 +276,7 @@ class RoutingService:
     async def _round_robin_selection(self, agents: list[dict], category_id: int) -> Agent:
         """Round-robin selection using Redis counter"""
         from app.core.redis import get_redis
+
         r = await get_redis()
 
         key = f"round_robin:{category_id}"
@@ -298,6 +286,33 @@ class RoutingService:
         selected_index = (index - 1) % len(sorted_agents)
         return sorted_agents[selected_index]["agent"]
 
+    async def _smooth_weighted_round_robin(self, agents: list[dict], category_id: int) -> Agent:
+        items = [{"agent": a["agent"], "weight": a["weight"]} for a in agents]
+        index = await self._swrr.next_index(category_id, items)
+        return items[index]["agent"]
+
+    def _weighted_random_selection(self, agents: list[dict]) -> Agent:
+        """Weighted random selection among agents"""
+        total_weight = sum(a["weight"] for a in agents)
+        if total_weight == 0:
+            return random.choice(agents)["agent"]
+
+        rand_val = random.uniform(0, total_weight)
+        cumulative = 0
+        for agent_info in agents:
+            cumulative += agent_info["weight"]
+            if rand_val <= cumulative:
+                return agent_info["agent"]
+        return agents[-1]["agent"]
+
+    def _least_calls_selection(self, agents: list[dict]) -> Agent:
+        best = min(agents, key=lambda a: a["agent"].default_weight or 0)
+        return best["agent"]
+
+    def _longest_idle_selection(self, agents: list[dict]) -> Agent:
+        sorted_agents = sorted(agents, key=lambda a: a["agent"].id)
+        return sorted_agents[0]["agent"]
+
     def _sequential_selection(self, agents: list[dict]) -> Agent:
         """Sequential selection — always pick first available (sorted by ID)"""
         sorted_agents = sorted(agents, key=lambda a: a["agent"].id)
@@ -305,9 +320,7 @@ class RoutingService:
 
     async def _update_caller(self, caller_number: str):
         """Update or create caller record"""
-        result = await self.db.execute(
-            select(Caller).where(Caller.caller_number == caller_number)
-        )
+        result = await self.db.execute(select(Caller).where(Caller.caller_number == caller_number))
         caller = result.scalar_one_or_none()
 
         if caller:
@@ -324,6 +337,7 @@ class RoutingService:
     async def _write_call_log(self, caller_number: str, agent_id: int, category_id: int, is_repeat: bool):
         """Write call log entry"""
         log = CallLog(
+            call_uuid=str(uuid.uuid4()),
             caller_number=caller_number,
             agent_id=agent_id,
             category_id=category_id,
@@ -333,7 +347,6 @@ class RoutingService:
 
     async def _write_blocked_log(self, caller_number: str, dialed_number: str):
         """Write blocked call log"""
-        # Find DID and category
         result = await self.db.execute(select(DID).where(DID.did_number == dialed_number))
         did = result.scalar_one_or_none()
 
