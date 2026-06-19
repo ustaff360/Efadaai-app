@@ -62,7 +62,6 @@ export default function Dids() {
   }
 
   const remove = async (did) => {
-    if (!confirm('Remove this DID?')) return
     try {
       await axios.delete(`${API}/categories/${did.category_id}/dids/${did.id}/`, { headers })
       await load()

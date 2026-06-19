@@ -22,6 +22,7 @@ export default function Categories() {
   const [selectedAgents, setSelectedAgents] = useState([])
   const [statsModalData, setStatsModalData] = useState(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [categoryMsg, setCategoryMsg] = useState('')
 
   const authHeaders = () => ({
     Authorization: `Bearer ${token}`,
@@ -183,7 +184,7 @@ export default function Categories() {
       const saved = editCat
         ? await axios.put(`${API}/categories/${editCat.id}/`, form)
         : await axios.post(`${API}/categories/`, form)
-      const categoryId = editCat ? editCat.id : saved.data.id
+      const categoryId = editCat ? editCat.id : saved?.data?.data?.id
       if (!categoryId) throw new Error(saved?.message || 'Category save did not return an id')
       await Promise.all(
         formDids
@@ -222,6 +223,8 @@ export default function Categories() {
       )
       resetForm()
       await load()
+      setCategoryMsg(editCat ? 'Category updated' : 'Category created')
+      setTimeout(() => setCategoryMsg(''), 2500)
     } catch (err) {
       const raw = typeof err === 'object' && err?.response?.data?.detail !== undefined
         ? err.response.data.detail
@@ -236,7 +239,7 @@ export default function Categories() {
   const toggleStatus = async (cat) => {
     try {
       const action = cat.status === 'active' ? 'deactivate' : 'activate'
-      await axios.post(`${API}/categories/${cat.id}/${action}/`)
+      await axios.post(`${API}/categories/${cat.id}/${action}/`, {}, { headers: authHeaders() })
       await load()
     } catch (err) {
       alert('Failed to update status: ' + (err.response?.data?.detail || err.message))
@@ -244,9 +247,8 @@ export default function Categories() {
   }
 
   const deleteCategory = async (id) => {
-    if (!confirm('Permanently delete this category?')) return
     try {
-      await axios.delete(`${API}/categories/${id}/`)
+      await axios.delete(`${API}/categories/${id}/`, { headers: authHeaders() })
       await load()
     } catch (err) {
       alert('Failed to delete: ' + (err.response?.data?.detail || err.message))
@@ -319,19 +321,18 @@ export default function Categories() {
   const removeDid = async (index) => {
     const did = formDids[index]
     if (did.id && editCat) {
-      if (!confirm('Remove this DID?')) return
-      await axios.delete(`${API}/categories/${editCat.id}/dids/${did.id}/`).catch(() => {})
+      await axios.delete(`${API}/categories/${editCat.id}/dids/${did.id}/`, { headers: authHeaders() }).catch(() => {})
     }
     setFormDids((previous) => previous.filter((_, i) => i !== index))
   }
 
-  const toggleAgent = (agent) => {
+  const toggleAgent = async (agent) => {
     const existingIndex = selectedAgents.findIndex((sa) => sa.agent_id === agent.id)
     if (existingIndex >= 0) {
       const existing = selectedAgents[existingIndex]
       if (existing.id && editCat) {
         if (!confirm('Remove agent from this category?')) return
-        axios.delete(`${API}/categories/${editCat.id}/agents/${existing.id}/`).catch(() => {})
+        await axios.delete(`${API}/categories/${editCat.id}/agents/${existing.id}/`, { headers: authHeaders() }).catch(() => {})
       }
       setSelectedAgents((previous) => previous.filter((_, i) => i !== existingIndex))
       return
@@ -362,7 +363,9 @@ export default function Categories() {
           <h2 className="text-2xl font-heading font-bold text-navy">Category Management</h2>
           <p className="text-sm text-text-gray mt-1">{categories.length} categor{categories.length === 1 ? 'y' : 'ies'} configured</p>
         </div>
-        <button
+        <div className="flex flex-col items-end gap-2">
+          {categoryMsg && <span className="text-xs text-green-700">{categoryMsg}</span>}
+          <button
           onClick={openCreate}
           className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-dark"
         >
@@ -371,6 +374,7 @@ export default function Categories() {
           </svg>
           Add Category
         </button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-white">

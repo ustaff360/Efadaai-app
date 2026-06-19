@@ -219,7 +219,7 @@ async def delete_user(
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
     await db.delete(user)
-    await db.flush()
+    await db.commit()
 
 
 @router.post("/{user_id}/reset-password/")

@@ -3,6 +3,7 @@
  */
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
+import { useAuth } from '../AuthContext'
 
 const API = '/api/v1'
 
@@ -29,6 +30,7 @@ function Settings() {
   const [showUserModal, setShowUserModal] = useState(false)
   const [userModalMode, setUserModalMode] = useState('create') // 'create' | 'edit'
   const [currentUser, setCurrentUser] = useState(null)
+  const [userMsg, setUserMsg] = useState('')
   const userFormInitial = { username: '', email: '', password: '', full_name: '', role: 'admin' }
   const [userForm, setUserForm] = useState(userFormInitial)
   const [passwordResetMsg, setPasswordResetMsg] = useState('')
@@ -192,17 +194,24 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
 
   const handleUserSubmit = async () => {
     try {
+      if (!userForm.username || !userForm.email) {
+        alert('Username and email are required')
+        return
+      }
+      if (userModalMode === 'create' && !userForm.password) {
+        alert('Password is required')
+        return
+      }
       if (userModalMode === 'create') {
-        if (!userForm.username || !userForm.email || !userForm.password) {
-          alert('Username, email, and password are required')
-          return
-        }
         await axios.post(`${API}/users/`, userForm)
+        setUserMsg('User created')
       } else {
         const updateData = { ...userForm }
         if (!updateData.password) delete updateData.password
         await axios.put(`${API}/users/${currentUser.id}/`, updateData)
+        setUserMsg('User updated')
       }
+      setTimeout(() => setUserMsg(''), 2500)
       setShowUserModal(false)
       loadUsers()
     } catch (err) {
@@ -210,11 +219,11 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
     }
   }
 
+  const authHeaders = () => ({ Authorization: `Bearer ${token}`, accept: 'application/json' })
   const handleDeleteUser = async (user) => {
-    if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return
     try {
-      await axios.delete(`${API}/users/${user.id}/`)
-      loadUsers()
+      await axios.delete(`${API}/users/${user.id}/`, { headers: authHeaders() })
+      await loadUsers()
     } catch (err) {
       alert(err.response?.data?.detail || 'Error deleting user')
     }

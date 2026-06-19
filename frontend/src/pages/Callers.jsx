@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
+import { useAuth } from '../AuthContext'
 
 const API = '/api/v1'
 const PAGE_SIZE_OPTIONS = [25, 50, 75, 100]
 const PAGE_SIZE_DEFAULT = 50
 
 function Callers() {
+  const { token } = useAuth()
   const [callers, setCallers] = useState([])
   const [blocklist, setBlocklist] = useState([])
   const [loading, setLoading] = useState(true)
@@ -22,6 +24,8 @@ function Callers() {
   const [selectedCaller, setSelectedCaller] = useState(null)
   const [callerHistory, setCallerHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
+
+  const authHeaders = () => ({ Authorization: `Bearer ${token}`, accept: 'application/json' })
 
   const loadCallers = async () => {
     try {
@@ -79,16 +83,15 @@ function Callers() {
     if (selected.size === 0) return
     if (!confirm(`Delete ${selected.size} caller(s) and all their history?`)) return
     try {
-      await axios.post(`${API}/callers/bulk-delete/`, { ids: Array.from(selected) })
+      await axios.post(`${API}/callers/bulk-delete/`, { ids: Array.from(selected) }, { headers: authHeaders() })
       loadCallers()
     } catch (e) { alert(e.response?.data?.detail || 'Error deleting') }
   }
 
   const deleteCaller = async (id) => {
-    if (!confirm('Delete this caller and all their history?')) return
     try {
-      await axios.delete(`${API}/callers/${id}`)
-      loadCallers()
+      await axios.delete(`${API}/callers/${id}/`, { headers: authHeaders() })
+      await loadCallers()
     } catch (e) { alert(e.response?.data?.detail || 'Error') }
   }
 
@@ -104,7 +107,7 @@ function Callers() {
 
   const unblockNumber = async (phoneNumber) => {
     if (!confirm(`Unblock ${phoneNumber}? It will return to the callers list.`)) return
-    await axios.post(`${API}/callers/${encodeURIComponent(phoneNumber)}/unblock`)
+    await axios.post(`${API}/callers/${encodeURIComponent(phoneNumber)}/unblock`, null, { headers: authHeaders() })
     loadBlocklist()
     loadCallers()
   }

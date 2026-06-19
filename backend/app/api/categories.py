@@ -206,7 +206,7 @@ async def list_all_dids(db: AsyncSession = Depends(get_db)):
 async def create_category(data: CategoryCreate, db: AsyncSession = Depends(get_db)):
     category = Category(**data.model_dump())
     db.add(category)
-    await db.flush()
+    await db.commit()
     await db.refresh(category)
     dids = [{'id': d.id, 'did_number': d.did_number, 'description': d.description} for d in category.dids]
     return ok('Category created', _category_to_response(category, dids))

@@ -18,6 +18,7 @@ export default function Agents() {
   const [createForm, setCreateForm] = useState({ name: '', extension: '', email: '', status: 'active' })
   const [savingCreate, setSavingCreate] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [createMsg, setCreateMsg] = useState('')
 
   const authHeaders = () => ({
     Authorization: `Bearer ${token}`,
@@ -57,6 +58,7 @@ export default function Agents() {
   const openCreate = () => {
     setCreateForm({ name: '', extension: '', email: '', status: 'active' })
     setCreateError('')
+    setCreateMsg('')
     setShowCreateModal(true)
   }
 
@@ -86,6 +88,8 @@ export default function Agents() {
       }
       await axios.post(`${API}/agents/`, payload, { headers })
       setShowCreateModal(false)
+      setCreateMsg('Agent created')
+      setTimeout(() => setCreateMsg(''), 2500)
       await load()
     } catch (err) {
       setCreateError(err.response?.data?.detail || 'Failed to create agent')
@@ -94,7 +98,6 @@ export default function Agents() {
     }
   }
   const deleteAgent = async (id) => {
-    if (!confirm('Delete this agent?')) return
     try {
       const headers = authHeaders()
       await axios.delete(`${API}/agents/${id}/`, { headers })

@@ -261,7 +261,7 @@ async def delete_agent(
         await db.delete(assignment)
 
     await db.delete(agent)
-    await db.flush()
+    await db.commit()
 
     log_audit(
         db=db,
