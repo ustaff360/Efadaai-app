@@ -75,11 +75,13 @@ services:
     container_name: routing-nginx
     restart: unless-stopped
     ports:
+      - "80:80"
       - "83:80"
       - "443:443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
       - ./nginx/ssl:/etc/nginx/ssl
+      - /tmp/ssl-certs:/etc/letsencrypt/live
     depends_on:
       - backend
       - frontend
