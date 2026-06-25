@@ -2,19 +2,10 @@ import React, { useEffect, useState, useRef } from 'react'
 import axios from 'axios'
 import { useAuth } from '../AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
+import { Phone, Users, Repeat, Shield, UserCheck, Layers } from 'lucide-react'
 
 const API = '/api/v1'
 const COLORS = ['#00d084', '#1a3446', '#ff6900', '#ff1818', '#6366f1', '#06b6d4']
-
-const TIME_PRESETS = [
-  { value: 'today', label: 'Today' },
-  { value: 'yesterday', label: 'Yesterday' },
-  { value: 'last_7_days', label: 'Last 7 Days' },
-  { value: 'last_30_days', label: 'Last 30 Days' },
-  { value: 'last_3_months', label: 'Last 3 Months' },
-  { value: 'last_6_months', label: 'Last 6 Months' },
-  { value: 'last_year', label: 'Last Year' },
-]
 
 function Dashboard() {
   const { token } = useAuth()
@@ -26,9 +17,8 @@ function Dashboard() {
   const [catStats, setCatStats] = useState([])
   const [didStats, setDidStats] = useState([])
   const [loading, setLoading] = useState(true)
-  const [preset, setPreset] = useState('last_30_days')
   const [activeTab, setActiveTab] = useState('agents')
-  const [exporting, setExporting] = useState(false)
+  const [preset, setPreset] = useState('last_30_days')
   const [liveCall, setLiveCall] = useState(null)
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
@@ -126,19 +116,6 @@ function Dashboard() {
 
   const dismissLiveCall = () => setLiveCall(null)
 
-  const exportFile = async (format) => {
-    setExporting(true)
-    try {
-      const res = await axios.get(`${API}/reports/export/?format=${format}&preset=${preset}`, { responseType: 'blob' })
-      const url = window.URL.createObjectURL(new Blob([res.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `report_${preset}.${format}`
-      link.click()
-    } catch (e) { alert('Export failed') }
-    setExporting(false)
-  }
-
   if (loading && summary.total_calls === 0) return (
     <div className="flex items-center justify-center py-20">
       <div className="text-text-gray text-sm">Loading dashboard...</div>
@@ -146,24 +123,12 @@ function Dashboard() {
   )
 
   const cards = [
-    { label: 'Total Calls', value: summary.total_calls, accent: 'border-l-emerald-500', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-    )},
-    { label: 'Unique Callers', value: summary.total_callers, accent: 'border-l-blue-500', iconBg: 'bg-blue-50', iconColor: 'text-blue-600', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-    )},
-    { label: 'Repeat Callers', value: summary.repeat_callers, accent: 'border-l-orange-500', iconBg: 'bg-orange-50', iconColor: 'text-orange-600', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-    )},
-    { label: 'Blocked', value: summary.blocked_calls, accent: 'border-l-red-500', iconBg: 'bg-red-50', iconColor: 'text-red-600', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-    )},
-    { label: 'Active Agents', value: summary.total_agents, accent: 'border-l-slate-500', iconBg: 'bg-slate-50', iconColor: 'text-slate-600', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-    )},
-    { label: 'Categories', value: summary.total_categories, accent: 'border-l-purple-500', iconBg: 'bg-purple-50', iconColor: 'text-purple-600', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-    )},
+    { label: 'Total Calls', value: summary.total_calls, accent: 'border-l-emerald-500', iconBg: 'bg-emerald-500', icon: Phone },
+    { label: 'Unique Callers', value: summary.total_callers, accent: 'border-l-blue-500', iconBg: 'bg-blue-500', icon: Users },
+    { label: 'Repeat Callers', value: summary.repeat_callers, accent: 'border-l-orange-500', iconBg: 'bg-orange-500', icon: Repeat },
+    { label: 'Blocked', value: summary.blocked_calls, accent: 'border-l-red-500', iconBg: 'bg-red-500', icon: Shield },
+    { label: 'Active Agents', value: summary.total_agents, accent: 'border-l-slate-500', iconBg: 'bg-slate-500', icon: UserCheck },
+    { label: 'Categories', value: summary.total_categories, accent: 'border-l-purple-500', iconBg: 'bg-purple-500', icon: Layers },
   ]
 
   const tabs = [
@@ -179,8 +144,6 @@ function Dashboard() {
     if (activeTab === 'categories') return catChartData
     return agentChartData
   }
-
-  const getPresetLabel = () => TIME_PRESETS.find(p => p.value === preset)?.label || preset
 
   const formatDuration = (sec) => {
     if (!sec) return '0s'
@@ -231,33 +194,8 @@ function Dashboard() {
         <div>
           <h2 className="text-2xl font-heading font-bold text-navy">Dashboard</h2>
           <p className="text-sm text-text-gray mt-1">
-            Showing <span className="font-medium text-text-dark">{getPresetLabel()}</span> data
+            Real-time routing overview
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={preset}
-            onChange={e => setPreset(e.target.value)}
-            className="border border-border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-primary focus:outline-none"
-          >
-            {TIME_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
-          <button
-            onClick={() => exportFile('csv')}
-            disabled={exporting}
-            className="flex items-center gap-1.5 bg-white border border-border text-text-dark px-3 py-2 rounded-lg text-sm hover:bg-bg-light disabled:opacity-50 transition"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            CSV
-          </button>
-          <button
-            onClick={() => exportFile('pdf')}
-            disabled={exporting}
-            className="flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-sm hover:bg-primary-dark disabled:opacity-50 transition"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            PDF
-          </button>
         </div>
       </div>
 
@@ -268,8 +206,8 @@ function Dashboard() {
             key={i}
             className={`bg-white rounded-xl border border-border border-l-4 ${card.accent} p-4 shadow-sm hover:shadow-md transition`}
           >
-            <div className={`w-9 h-9 ${card.iconBg} rounded-lg flex items-center justify-center ${card.iconColor} mb-3`}>
-              {card.icon}
+            <div className={`w-9 h-9 ${card.iconBg} rounded-lg flex items-center justify-center text-white mb-3`}>
+              {card.icon ? <card.icon size={18} /> : null}
             </div>
             <div className="text-xs text-text-gray font-medium uppercase tracking-wide">{card.label}</div>
             <div className="text-2xl font-heading font-bold text-text-dark mt-1">{card.value}</div>
@@ -285,7 +223,7 @@ function Dashboard() {
             <h3 className="text-sm font-heading font-semibold text-navy">
               {activeTab === 'agents' ? 'Calls by Agent' : 'Calls by Category'}
             </h3>
-            <span className="text-xs text-text-muted">{getPresetLabel()}</span>
+            <span className="text-xs text-text-muted">Last 30 Days</span>
           </div>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={getChartData()} barGap={4}>
@@ -362,13 +300,13 @@ function Dashboard() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-text-gray border-b border-border">
-                  <th className="px-5 py-3 font-medium">Agent</th>
-                  <th className="px-5 py-3 font-medium">Extension</th>
-                  <th className="px-5 py-3 font-medium text-right">Total Calls</th>
-                  <th className="px-5 py-3 font-medium text-right">Unique Callers</th>
-                  <th className="px-5 py-3 font-medium text-right">Repeat Rate</th>
-                  <th className="px-5 py-3 font-medium text-right">Today Calls</th>
-                  <th className="px-5 py-3 font-medium text-right">Avg Duration</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Agent</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Extension</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Total Calls</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Unique Callers</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Repeat Rate</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Today Calls</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Avg Duration</th>
                 </tr>
               </thead>
               <tbody>
@@ -405,13 +343,13 @@ function Dashboard() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-text-gray border-b border-border">
-                  <th className="px-5 py-3 font-medium">Category</th>
-                  <th className="px-5 py-3 font-medium">DIDs</th>
-                  <th className="px-5 py-3 font-medium text-right">Total Calls</th>
-                  <th className="px-5 py-3 font-medium text-right">Unique Callers</th>
-                  <th className="px-5 py-3 font-medium text-right">Total Agents</th>
-                  <th className="px-5 py-3 font-medium text-right">Repeat Rate</th>
-                  <th className="px-5 py-3 font-medium text-right">Today Calls</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Category</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">DIDs</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Total Calls</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Unique Callers</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Total Agents</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Repeat Rate</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Today Calls</th>
                 </tr>
               </thead>
               <tbody>

@@ -134,10 +134,10 @@ export default function Dids() {
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-bg-light">
               <tr>
-                <th className="px-4 py-3 font-medium text-text-gray">DID Number</th>
-                <th className="px-4 py-3 font-medium text-text-gray">Category</th>
-                <th className="px-4 py-3 font-medium text-text-gray">Description</th>
-                <th className="px-4 py-3 text-right font-medium text-text-gray">Actions</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">DID Number</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Category</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Description</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Actions</th>
               </tr>
             </thead>
             <tbody>

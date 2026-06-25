@@ -614,24 +614,25 @@ async def export_report(
         base = and_(base, CallLog.did_id == did_id)
 
     result = await db.execute(
-        select(CallLog, Agent, Category)
+        select(CallLog, Agent, Category, DID)
         .outerjoin(Agent, CallLog.agent_id == Agent.id)
         .outerjoin(Category, CallLog.category_id == Category.id)
+        .outerjoin(DID, CallLog.did_id == DID.id)
         .where(base)
         .order_by(CallLog.call_start.desc())
     )
 
     rows = []
-    for log, agent, category in result.all():
+    for log, agent, category, did in result.all():
         rows.append({
             "Date": str(log.call_start)[:19],
             "Caller": log.caller_number,
             "Agent": agent.name if agent else "N/A",
             "Extension": agent.extension if agent else "N/A",
+            "DID Number": did.did_number if did else "N/A",
             "Category": category.name if category else "N/A",
             "Duration (s)": log.duration_sec,
             "Repeat": "Yes" if log.is_repeat else "No",
-            "Blocked": "Yes" if log.is_blocked else "No",
         })
 
     if format == "csv":
@@ -648,36 +649,101 @@ async def export_report(
     elif format == "pdf":
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
+        from reportlab.lib.units import inch
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.6*inch, bottomMargin=0.5*inch)
         elements = []
         styles = getSampleStyleSheet()
 
-        elements.append(Paragraph(f"Call Report - {preset.replace('_', ' ').title()}", styles["Title"]))
-        elements.append(Spacer(1, 12))
+        # ── Title ──
+        title_style = ParagraphStyle('ReportTitle', parent=styles['Title'], fontSize=20, spaceAfter=4, textColor=colors.HexColor("#1a3446"))
+        elements.append(Paragraph(f"Call Report — {preset.replace('_', ' ').title()}", title_style))
 
-        total_calls = len(rows)
+        # Subtitle with filter info
+        filter_parts = []
+        if agent_id:
+            # Fetch agent name for display
+            agent_result = await db.execute(select(Agent.name).where(Agent.id == agent_id))
+            agent_name = agent_result.scalar_one_or_none() or f"Agent #{agent_id}"
+            filter_parts.append(f"Agent: {agent_name}")
+        if category_id:
+            cat_result = await db.execute(select(Category.name).where(Category.id == category_id))
+            cat_name = cat_result.scalar_one_or_none() or f"Category #{category_id}"
+            filter_parts.append(f"Category: {cat_name}")
+        sub_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor("#64748b"), spaceAfter=16)
+        subtitle = " | ".join(filter_parts) if filter_parts else f"{start.strftime('%b %d, %Y')} – {end.strftime('%b %d, %Y')}"
+        elements.append(Paragraph(subtitle, sub_style))
+
+        # ── Summary Stats Cards ──
+        total_callers = len(set(r["Caller"] for r in rows))
         repeat_calls = sum(1 for r in rows if r["Repeat"] == "Yes")
-        blocked = sum(1 for r in rows if r["Blocked"] == "Yes")
-        elements.append(Paragraph(f"Total: {total_calls} | Repeat: {repeat_calls} | Blocked: {blocked}", styles["Normal"]))
-        elements.append(Spacer(1, 12))
+        repeat_rate = f"{(repeat_calls / len(rows) * 100):.1f}%" if rows else "0%"
+        today_calls = sum(1 for r in rows if r["Date"].startswith(str(datetime.utcnow().date())))
 
+        stats_data = [
+            ["Total Calls", "Unique Callers", "Repeat Calls", "Repeat Rate", "Today Calls"],
+            [
+                str(len(rows)),
+                str(total_callers),
+                str(repeat_calls),
+                repeat_rate,
+                str(today_calls),
+            ],
+        ]
+        stats_table = Table(stats_data, colWidths=[1.2*inch]*5)
+        stats_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a3446")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("FONTSIZE", (0, 1), (-1, 1), 14),
+            ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+            ("TEXTCOLOR", (0, 1), (-1, 1), colors.HexColor("#1a3446")),
+            ("TOPPADDING", (0, 0), (-1, 0), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+            ("TOPPADDING", (0, 1), (-1, 1), 10),
+            ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
+            ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#e5e7eb")),
+            ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#f8fafc")),
+        ]))
+        elements.append(stats_table)
+        elements.append(Spacer(1, 16))
+
+        # ── Call Details Table ──
         if rows:
-            headers = list(rows[0].keys())
-            data = [headers] + [list(r.values()) for r in rows[:100]]
-            t = Table(data)
+            detail_style = ParagraphStyle('SectionTitle', parent=styles['Normal'], fontSize=12, fontName='Helvetica-Bold', textColor=colors.HexColor("#1a3446"), spaceAfter=8)
+            elements.append(Paragraph("Call Details", detail_style))
+
+            detail_headers = ["Date", "Caller", "Agent", "DID", "Category", "Duration", "Repeat"]
+            detail_data = [[
+                r["Date"][:10] if len(r["Date"]) > 10 else r["Date"],
+                r["Caller"],
+                r["Agent"],
+                r["DID Number"],
+                r["Category"],
+                str(r["Duration (s)"]) + "s",
+                "✓" if r["Repeat"] == "Yes" else "—",
+            ] for r in rows[:100]]
+
+            data = [detail_headers] + detail_data
+            t = Table(data, colWidths=[1*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.6*inch, 0.5*inch])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a3446")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f1f5f9")),
-                ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#e5e7eb")),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
+                ("FONTSIZE", (0, 1), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                ("TOPPADDING", (0, 0), (-1, 0), 8),
+                ("BOTTOMPADDING", (0, 1), (-1, -1), 6),
+                ("TOPPADDING", (0, 1), (-1, -1), 6),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5f9")]),
             ]))
             elements.append(t)
 

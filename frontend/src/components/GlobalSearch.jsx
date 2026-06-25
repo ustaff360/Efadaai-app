@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { Users, PhoneCall, Phone, Tags, Search, Loader } from 'lucide-react'
 
 const API = '/api/v1'
 
 const TYPE_CONFIG = {
-  agent: { label: 'Agent', color: 'bg-blue-100 text-blue-700', icon: '🎧' },
-  caller: { label: 'Caller', color: 'bg-orange-100 text-orange-700', icon: '📞' },
-  did: { label: 'DID', color: 'bg-purple-100 text-purple-700', icon: '📱' },
-  category: { label: 'Category', color: 'bg-emerald-100 text-emerald-700', icon: '📁' },
+  agent: { label: 'Agent', color: 'bg-blue-100 text-blue-700', icon: Users },
+  caller: { label: 'Caller', color: 'bg-orange-100 text-orange-700', icon: PhoneCall },
+  did: { label: 'DID', color: 'bg-purple-100 text-purple-700', icon: Phone },
+  category: { label: 'Category', color: 'bg-emerald-100 text-emerald-700', icon: Tags },
 }
 
 function GlobalSearch() {
@@ -102,9 +103,7 @@ function GlobalSearch() {
     <div className="relative" ref={dropdownRef}>
       {/* Search Input */}
       <div className="relative">
-        <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
           ref={inputRef}
           type="text"
@@ -138,7 +137,9 @@ function GlobalSearch() {
                       i === selectedIndex ? 'bg-primary/5' : 'hover:bg-bg-light'
                     }`}
                   >
-                    <span className="text-lg">{config.icon}</span>
+                    <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-text-muted">
+                      <config.icon size={16} />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-text-dark truncate">{result.title}</div>
                       {result.subtitle && (

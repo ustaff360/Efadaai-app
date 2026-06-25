@@ -112,6 +112,11 @@ class RoutingService:
         if not category:
             raise ValueError(f"No category found for DID: {dialed_number}")
 
+        # Lookup DID record for logging
+        did_result = await self.db.execute(select(DID).where(DID.did_number == dialed_number))
+        did_record = did_result.scalar_one_or_none()
+        did_id_for_log = did_record.id if did_record else None
+
         # Step 3: Get routing strategy for this category
         strategy = await self._get_category_strategy(category.id)
 
@@ -178,7 +183,7 @@ class RoutingService:
         await self._update_caller(caller_number)
 
         # Step 9: Write call log
-        await self._write_call_log(caller_number, selected_agent.id, category.id, is_repeat)
+        await self._write_call_log(caller_number, selected_agent.id, category.id, is_repeat, did_id_for_log)
 
         # Step 10: Audit selection decision (non-blocking)
         try:
@@ -334,13 +339,14 @@ class RoutingService:
             )
             self.db.add(caller)
 
-    async def _write_call_log(self, caller_number: str, agent_id: int, category_id: int, is_repeat: bool):
+    async def _write_call_log(self, caller_number: str, agent_id: int, category_id: int, is_repeat: bool, did_id: int | None = None):
         """Write call log entry"""
         log = CallLog(
             call_uuid=str(uuid.uuid4()),
             caller_number=caller_number,
             agent_id=agent_id,
             category_id=category_id,
+            did_id=did_id,
             is_repeat=is_repeat,
         )
         self.db.add(log)

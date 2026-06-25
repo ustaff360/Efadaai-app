@@ -19,6 +19,7 @@ export default function Agents() {
   const [savingCreate, setSavingCreate] = useState(false)
   const [createError, setCreateError] = useState('')
   const [createMsg, setCreateMsg] = useState('')
+  const [agentSearch, setAgentSearch] = useState('')
 
   const authHeaders = () => ({
     Authorization: `Bearer ${token}`,
@@ -226,20 +227,31 @@ export default function Agents() {
         </button>
       </div>
 
+      {/* Search */}
+      <div>
+        <input
+          type="text"
+          value={agentSearch}
+          onChange={e => setAgentSearch(e.target.value)}
+          placeholder="Search agents by name or extension..."
+          className="input w-full md:w-80 text-sm"
+        />
+      </div>
+
       <div className="overflow-hidden rounded-xl border border-border bg-white">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px] text-left text-sm">
             <thead className="bg-bg-light">
               <tr>
-                <th className="px-4 py-3 font-medium text-text-gray">Agent Name</th>
-                <th className="px-4 py-3 font-medium text-text-gray">Extension</th>
-                <th className="px-4 py-3 font-medium text-text-gray">Assigned Categories</th>
-                <th className="px-4 py-3 text-right font-medium text-text-gray">Total Calls</th>
-                <th className="px-4 py-3 text-right font-medium text-text-gray">Unique Callers</th>
-                <th className="px-4 py-3 text-right font-medium text-text-gray">Repeat Rate</th>
-                <th className="px-4 py-3 text-right font-medium text-text-gray">Today Calls</th>
-                <th className="px-4 py-3 font-medium text-text-gray">Status</th>
-                <th className="px-4 py-3 text-right font-medium text-text-gray">Actions</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Agent Name</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Extension</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Assigned Categories</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Total Calls</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Unique Callers</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Repeat Rate</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Today Calls</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -252,7 +264,14 @@ export default function Agents() {
                   <td colSpan="9" className="px-4 py-10 text-center text-text-muted">No agents found.</td>
                 </tr>
               ) : (
-                agents.map((agent) => {
+                agents
+                  .filter(function(agent) {
+                    if (!agentSearch) return true
+                    var q = agentSearch.toLowerCase()
+                    return (agent.name || '').toLowerCase().indexOf(q) >= 0
+                        || (agent.extension || '').toLowerCase().indexOf(q) >= 0
+                  })
+                  .map(function(agent) {
                   const assignments = agent.category_assignments || []
                   const rowAgentId = String(agent.id ?? agent.agent_id ?? '')
                   const report = statsMap[rowAgentId] || {}
@@ -389,25 +408,23 @@ export default function Agents() {
       )}
 
       {statsModalData && (
-        <div className="fixed inset-0 z-50 bg-black/40">
-          <div className="absolute inset-0 overflow-y-auto py-6">
-            <div className="min-h-full px-4">
-              <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white shadow-xl">
-                <div className="flex items-center justify-between border-b border-border px-6 py-5">
-                  <h3 className="text-lg font-heading font-bold text-navy">Agent Stats</h3>
-                  <button
-                    onClick={() => setStatsModalData(null)}
-                    className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"
-                    aria-label="Close"
-                    type="button"
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="p-6">
-                  {statsLoading ? (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setStatsModalData(null)}>
+          <div className="flex flex-col w-full max-w-3xl max-h-[85vh] rounded-2xl bg-white shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border px-6 py-5 shrink-0">
+              <h3 className="text-lg font-heading font-bold text-navy">Agent Stats</h3>
+              <button
+                onClick={() => setStatsModalData(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-text-muted"
+                aria-label="Close"
+                type="button"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              {statsLoading ? (
                     <div className="py-10 text-center text-text-gray">Loading stats...</div>
                   ) : (
                     <div className="space-y-4">
@@ -432,7 +449,7 @@ export default function Agents() {
 
                       <div>
                         <h4 className="mb-2 text-sm font-semibold text-navy">Categories</h4>
-                        <div className="overflow-hidden rounded-xl border border-border">
+                        <div className="overflow-x-auto rounded-xl border border-border">
                           <table className="w-full text-left text-sm">
                             <thead className="bg-bg-light">
                               <tr>
@@ -468,7 +485,7 @@ export default function Agents() {
 
                       <div>
                         <h4 className="mb-2 text-sm font-semibold text-navy">Recent Call History</h4>
-                        <div className="overflow-hidden rounded-xl border border-border">
+                        <div className="overflow-x-auto rounded-xl border border-border">
                           <table className="w-full text-left text-sm">
                             <thead className="bg-bg-light">
                               <tr>
@@ -507,8 +524,6 @@ export default function Agents() {
                   )}
                 </div>
               </div>
-            </div>
-          </div>
         </div>
       )}
 

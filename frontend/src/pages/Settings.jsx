@@ -1,9 +1,10 @@
-/**
- * Settings page - manages AMI connection, routing, SMTP, users, and backups
- */
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
 import { useAuth } from '../AuthContext'
+import {
+  PlugZap, RotateCw, Mail, Users, ClipboardList, User, Database,
+  Save, CheckCircle, AlertCircle, Download, Upload, Send, Search, X,
+} from 'lucide-react'
 
 const API = '/api/v1'
 
@@ -374,13 +375,13 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
   // ==================== Tabs ====================
 
   const tabs = [
-    { key: 'ami', label: 'AMI Connection', icon: '🔌' },
-    { key: 'routing', label: 'Routing', icon: '🔄' },
-    { key: 'smtp', label: 'SMTP Settings', icon: '📧' },
-    { key: 'users', label: 'Users', icon: '👥' },
-    { key: 'audit', label: 'Audit Logs', icon: '📋' },
-    { key: 'profile', label: 'My Profile', icon: '👤' },
-    { key: 'backup', label: 'Backup & Restore', icon: '💾' },
+    { key: 'ami', label: 'AMI Connection', icon: PlugZap },
+    { key: 'routing', label: 'Routing', icon: RotateCw },
+    { key: 'smtp', label: 'SMTP Settings', icon: Mail },
+    { key: 'users', label: 'Users', icon: Users },
+    { key: 'audit', label: 'Audit Logs', icon: ClipboardList },
+    { key: 'profile', label: 'My Profile', icon: User },
+    { key: 'backup', label: 'Backup & Restore', icon: Database },
   ]
 
   return (
@@ -416,19 +417,23 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
 
       {/* Tab Navigation */}
       <div className="flex overflow-x-auto border-b border-border gap-1">
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition border-b-2 ${
-              activeTab === tab.key
-                ? 'border-primary text-primary bg-white'
-                : 'border-transparent text-text-gray hover:text-text-dark hover:bg-white/50'
-            }`}
-          >
-            <span className="mr-1.5">{tab.icon}</span>{tab.label}
-          </button>
-        ))}
+        {tabs.map(tab => {
+          const TabIcon = tab.icon
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap transition border-b-2 ${
+                activeTab === tab.key
+                  ? 'border-primary text-primary bg-white'
+                  : 'border-transparent text-text-gray hover:text-text-dark hover:bg-white/50'
+              }`}
+            >
+              <TabIcon size={15} />
+              {tab.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* ==================== AMI Connection Tab ==================== */}
@@ -638,13 +643,13 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
               <table className="w-full text-left text-sm">
                 <thead className="bg-bg-light">
                   <tr>
-                    <th className="px-4 py-3 font-medium text-text-gray">Status</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Username</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Email</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Full Name</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Role</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Last Login</th>
-                    <th className="px-4 py-3 font-medium text-text-gray text-right">Actions</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Status</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Username</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Email</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Full Name</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Role</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Last Login</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -884,12 +889,12 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
               <table className="w-full text-left text-sm">
                 <thead className="bg-bg-light">
                   <tr>
-                    <th className="px-4 py-3 font-medium text-text-gray">Time</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">User</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Action</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Resource</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">Details</th>
-                    <th className="px-4 py-3 font-medium text-text-gray">IP</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Time</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">User</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Action</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Resource</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">Details</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">IP</th>
                   </tr>
                 </thead>
                 <tbody>
