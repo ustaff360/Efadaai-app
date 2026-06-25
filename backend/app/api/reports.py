@@ -168,6 +168,8 @@ async def get_agent_stats(
     start, end = get_date_range(preset, custom_start or "", custom_end or "")
 
     call_filter = and_(CallLog.agent_id == Agent.id, CallLog.call_start >= start)
+    if agent_id:
+        call_filter = and_(call_filter, CallLog.agent_id == agent_id)
     if category_id:
         call_filter = and_(call_filter, CallLog.category_id == category_id)
     if did_id:
@@ -221,6 +223,8 @@ async def get_agent_summary(
     start, end = get_date_range(preset, custom_start or "", custom_end or "")
 
     call_filter = and_(CallLog.agent_id == Agent.id, CallLog.call_start >= start)
+    if agent_id:
+        call_filter = and_(call_filter, CallLog.agent_id == agent_id)
     if category_id:
         call_filter = and_(call_filter, CallLog.category_id == category_id)
     if did_id:

@@ -186,6 +186,9 @@ async def get_caller_history(
     return history
 
 
+@router.get("/{caller_number}/history", include_in_schema=False)(get_caller_history)
+
+
 @router.delete("/{caller_id}/")
 async def delete_caller(caller_id: int, db: AsyncSession = Depends(get_db)):
     """Delete a caller record and their call logs"""
