@@ -3,7 +3,7 @@ Asterisk Smart Agent Routing & Call Distribution System
 FastAPI Backend Entry Point
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.core.config import settings
@@ -12,6 +12,7 @@ from app.api import agents, categories, route, reports, callers, auth, users, se
 from app.api import calls as calls_api
 from app.api import recordings
 from app.api import ws
+from app.core.auth import verify_api_key
 
 
 INIT_SQL = [
@@ -40,6 +41,14 @@ INIT_SQL = [
       sticky_window_days INTEGER NOT NULL DEFAULT 30,
       updated_at TIMESTAMP NOT NULL DEFAULT now(),
       created_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS api_key_config (
+      id INT PRIMARY KEY DEFAULT 1,
+      api_key VARCHAR(255) NOT NULL DEFAULT '',
+      created_at TIMESTAMP NOT NULL DEFAULT now(),
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
     """,
 ]
@@ -71,22 +80,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Public routers (no auth required)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(auth_reset.router, prefix="/api/v1/auth", tags=["Auth", "PasswordReset"])
+
+# JWT-protected routers (user session required)
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(search.router, prefix="/api/v1/search", tags=["Search"])
-app.include_router(backup.router, prefix="/api/v1/backup", tags=["Backup"])
-app.include_router(route.router, prefix="/api/v1", tags=["Routing"])
 app.include_router(agents.router, prefix="/api/v1/agents", tags=["Agents"])
 app.include_router(categories.router, prefix="/api/v1/categories", tags=["Categories"])
-app.include_router(callers.router, prefix="/api/v1/callers", tags=["Callers"])
-app.include_router(ws.router, prefix="/api/v1/ws", tags=["WebSocket"])
-app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
 app.include_router(config.router, prefix="/api/v1/config", tags=["Config"])
-app.include_router(calls_api.router, prefix="/api/v1/calls", tags=["Calls"])
-app.include_router(recordings.router, prefix="/api/v1/recordings", tags=["Recordings"])
+
+# API-key-protected routers (X-API-Key header required when configured)
+app.include_router(route.router, prefix="/api/v1", tags=["Routing"], dependencies=[Depends(verify_api_key)])
+app.include_router(callers.router, prefix="/api/v1/callers", tags=["Callers"], dependencies=[Depends(verify_api_key)])
+app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"], dependencies=[Depends(verify_api_key)])
+app.include_router(calls_api.router, prefix="/api/v1/calls", tags=["Calls"], dependencies=[Depends(verify_api_key)])
+app.include_router(recordings.router, prefix="/api/v1/recordings", tags=["Recordings"], dependencies=[Depends(verify_api_key)])
+app.include_router(backup.router, prefix="/api/v1/backup", tags=["Backup"], dependencies=[Depends(verify_api_key)])
+
+# WebSocket router
+app.include_router(ws.router, prefix="/api/v1/ws", tags=["WebSocket"])
 
 
 @app.get("/api/v1/health", tags=["Health"])

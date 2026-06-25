@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext'
 import {
   PlugZap, RotateCw, Mail, Users, ClipboardList, User, Database,
   Save, CheckCircle, AlertCircle, Download, Upload, Send, Search, X,
+  Key, Copy, RefreshCw,
 } from 'lucide-react'
 
 const API = '/api/v1'
@@ -107,6 +108,8 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
     loadConfig()
     loadUsers()
     loadSmtpConfig()
+    loadApiKey()
+    loadMyProfile()
   }, [])
 
   const loadAudit = async () => {
@@ -246,6 +249,13 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileForm, setProfileForm] = useState({ full_name: '', current_password: '', new_password: '', confirm_password: '' })
   const [profileMsg, setProfileMsg] = useState('')
+  const [apiKeyDisplay, setApiKeyDisplay] = useState('****')
+  const [apiKeyFull, setApiKeyFull] = useState('')
+  const [apiKeyLoading, setApiKeyLoading] = useState(true)
+  const [apiKeyRegenerating, setApiKeyRegenerating] = useState(false)
+  const [showFullKey, setShowFullKey] = useState(false)
+  const [apiKeyCopied, setApiKeyCopied] = useState(false)
+  const [apiKeyMsg, setApiKeyMsg] = useState('')
 
   const loadMyProfile = async () => {
     setProfileLoading(true)
@@ -334,6 +344,31 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
     e.target.value = ''
   }
 
+  // ==================== API Key Management ====================
+
+  const loadApiKey = async () => {
+    try {
+      const res = await axios.get(`${API}/config/api-key`)
+      setApiKeyDisplay(res.data.api_key)
+      setApiKeyFull(res.data.is_active ? (res.data.api_key || '') : '')
+    } catch { /* OK */ }
+    setApiKeyLoading(false)
+  }
+
+  const handleRegenerateKey = async () => {
+    if (!confirm('Regenerate API key? This will invalidate any existing integrations using the current key.')) return
+    setApiKeyRegenerating(true)
+    try {
+      const res = await axios.post(`${API}/config/api-key/regenerate`)
+      setApiKeyDisplay(res.data.api_key)
+      setApiKeyFull(res.data.api_key)
+      setShowFullKey(true)
+      setApiKeyMsg('New API key generated! Copy it now — it will only be shown once.')
+      setTimeout(() => setApiKeyMsg(''), 5000)
+    } catch { setApiKeyMsg('Failed to regenerate key.') }
+    setApiKeyRegenerating(false)
+  }
+
   // ==================== SMTP Settings ====================
 
   const loadSmtpConfig = async () => {
@@ -380,6 +415,7 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
     { key: 'smtp', label: 'SMTP Settings', icon: Mail },
     { key: 'users', label: 'Users', icon: Users },
     { key: 'audit', label: 'Audit Logs', icon: ClipboardList },
+    { key: 'apikey', label: 'API Keys', icon: Key },
     { key: 'profile', label: 'My Profile', icon: User },
     { key: 'backup', label: 'Backup & Restore', icon: Database },
   ]
@@ -792,6 +828,86 @@ setSmtpTestMsg(res.data?.message || 'Test email queued successfully')
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'apikey' && (
+        <div className="max-w-2xl">
+          <div className="bg-white rounded-xl shadow-soft border border-border overflow-hidden">
+            <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-primary/[0.03] to-transparent">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                  <Key size={20} className="text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-heading font-semibold text-text-dark">API Key Management</h2>
+                  <p className="text-xs text-text-muted">Secure external access to the routing API</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-5">
+              {apiKeyLoading ? (
+                <div className="py-8 text-center text-text-gray text-sm">Loading...</div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-text-gray mb-1.5 uppercase tracking-wider">Current API Key</label>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-4 py-2.5 bg-gray-50 border border-border rounded-lg text-sm font-mono text-text-dark">
+                        {showFullKey ? apiKeyFull : apiKeyDisplay}
+                      </code>
+                      <button
+                        onClick={() => setShowFullKey(!showFullKey)}
+                        className="p-2.5 rounded-lg border border-border text-text-muted hover:bg-gray-50 transition"
+                        title={showFullKey ? 'Hide key' : 'Show key'}
+                      >
+                        <Key size={16} />
+                      </button>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(apiKeyFull); setApiKeyCopied(true); setTimeout(() => setApiKeyCopied(false), 2000) }}
+                        className="p-2.5 rounded-lg border border-border text-text-muted hover:bg-gray-50 transition"
+                        title="Copy key"
+                      >
+                        <Copy size={16} />
+                      </button>
+                    </div>
+                    {apiKeyCopied && <p className="mt-1 text-xs text-success">Copied to clipboard!</p>}
+                    {!apiKeyFull && <p className="mt-1 text-xs text-amber-600">No API key configured. Generate one below.</p>}
+                  </div>
+
+                  <div className="border-t border-border pt-4">
+                    <label className="block text-xs font-semibold text-text-gray mb-1.5 uppercase tracking-wider">Regenerate API Key</label>
+                    <p className="text-xs text-text-muted mb-3">This will invalidate any existing integrations using the current key.</p>
+                    <button
+                      onClick={handleRegenerateKey}
+                      disabled={apiKeyRegenerating}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark disabled:opacity-50 transition"
+                    >
+                      <RefreshCw size={15} className={apiKeyRegenerating ? 'animate-spin' : ''} />
+                      {apiKeyRegenerating ? 'Generating...' : 'Generate New Key'}
+                    </button>
+                    {apiKeyMsg && (
+                      <p className="mt-2 text-xs text-success">{apiKeyMsg}</p>
+                    )}
+                  </div>
+
+                  <div className="border-t border-border pt-4">
+                    <h4 className="text-sm font-semibold text-navy mb-2">How to use</h4>
+                    <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-xs text-text-gray">
+                      <p>Include the API key in all requests to protected endpoints:</p>
+                      <code className="block bg-navy text-white px-3 py-2 rounded font-mono text-xs">
+                        curl -H "X-API-Key: your-api-key-here" https://your-server/api/v1/callers/
+                      </code>
+                      <p className="mt-2">You can also use the CLI tool:</p>
+                      <code className="block bg-navy text-white px-3 py-2 rounded font-mono text-xs">
+                        python scripts/manage_api_key.py generate
+                      </code>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

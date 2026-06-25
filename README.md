@@ -1,175 +1,176 @@
-# Smart Agent Routing Platform (SARP)
+# Efada.Ai — Smart Agent Routing & Call Distribution
 
-SARP is an intelligent inbound call routing platform for Asterisk PBX. It ingests metadata from an incoming call, selects the right agent by category, assignment weights, availability, and caller affinity, and returns a JSON response so Asterisk can route the call immediately.
+Enterprise-grade Asterisk PBX call routing engine with intelligent agent selection, weighted distribution, sticky routing, and real-time analytics.
 
-## Backend infrastructure
+---
 
-- FastAPI async application (`backend/app/main.py`, `backend/app/api/*`)
-- PostgreSQL for durable state: users, agents, categories, assignments, call history, audit logs
-- Redis for agent status, sticky caller memory, and round-robin counters
-- AMI watcher container integration for Asterisk event polling (`ami-watcher/`)
-- Nginx reverse proxy for frontend ingress and API forwarding
-- WebSocket signaling for dashboard live refresh
+## 🔐 API Authentication
 
-### Runtime behavior
+The system uses **two authentication layers**:
 
-Primary hot path:
-- `POST /api/v1/get-agent/`
-- `POST /api/v1/route/`
-- `POST /api/v1/call-completed/`
+### 1. JWT Auth (Frontend / Admin UI)
 
-The engine:
-1) checks blocklist
-2) maps DID to category
-3) loads active category-agent assignments
-4) prefers idle agents from Redis
-5) applies sticky caller behavior when possible
-6) falls back to weighted, round-robin, or sequential routing
-7) logs the call, updates caller stats, stores sticky mapping, and returns the selected agent
-
-## Example API usage
-
-Auth uses JWT bearer tokens. Obtain a token from:
+Used by the web dashboard. Users log in with username/password and receive a JWT token.
 
 ```
-POST /api/v1/auth/login/
-Body: {"username": "...", "password": "..."}
+Authorization: Bearer <jwt-token>
 ```
 
-Use the returned token as:
+### 2. API Key Auth (External / Integrations)
+
+Used by external scripts, services, or third-party integrations. The API key is sent as a custom header. Requires no login.
 
 ```
-Authorization: Bearer <access_token>
+X-API-Key: <your-api-key>
 ```
 
-### Select an agent
+**How to get your API key:**
+- **CLI:** `python scripts/manage_api_key.py generate`
+- **Settings UI:** Login → Settings → API Keys → Generate New Key
+
+---
+
+## 📡 API Usage Examples
+
+All examples below require either a valid API key (via `X-API-Key` header) or a JWT Bearer token.
+
+### Base URL
 
 ```
-POST /api/v1/get-agent/
-Headers: Content-Type: application/json
-Body: {
-  "caller_id": "123456789",
-  "caller_name": "ABC Company",
-  "did": "6312460606"
-}
+https://your-domain.com/api/v1
 ```
 
-Success response:
+### Agents
 
+**List all agents**
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  https://your-domain.com/api/v1/agents/
+```
+
+**Response:**
 ```json
-{
-  "success": true,
-  "category": "Laundry",
-  "agent_name": "Mawra",
-  "extension": "1001",
-  "error": null
-}
+[
+  {
+    "id": 1,
+    "name": "Ali",
+    "extension": "1003",
+    "email": "ali@example.com",
+    "status": "active",
+    "category_assignments": [
+      {"id": 1, "name": "Support", "weight": 50}
+    ]
+  }
+]
 ```
 
-Blocked caller response:
+**Get agent stats**
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  https://your-domain.com/api/v1/reports/agents/summary/?preset=last_30_days
+```
 
+**Response:**
 ```json
-{
-  "success": false,
-  "category": null,
-  "agent_name": null,
-  "extension": null,
-  "error": "Blocked"
-}
+[
+  {
+    "agent_id": 1,
+    "agent_name": "Ali",
+    "extension": "1003",
+    "total_calls": 64,
+    "unique_callers": 58,
+    "repeat_calls": 6,
+    "today_calls": 3
+  }
+]
 ```
 
-Missing DID/category returns HTTP 404 with `detail` explaining the missing mapping.
+### Callers
 
-## Installation
-
-### Docker Compose
-
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  "https://your-domain.com/api/v1/callers/?page=1&limit=10"
 ```
+
+### Reports
+
+**Export CSV**
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  "https://your-domain.com/api/v1/reports/export/?preset=last_30_days&format=csv" \
+  -o report.csv
+```
+
+**Export PDF (with summary stats header)**
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  "https://your-domain.com/api/v1/reports/export/?preset=last_30_days&agent_id=1&format=pdf" \
+  -o ali_report.pdf
+```
+
+### Filter by Agent + Date Range
+
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  "https://your-domain.com/api/v1/reports/summary/?preset=last_30_days&agent_id=1"
+```
+
+### Route a Call
+
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{"caller_number": "1234567890", "dialed_number": "6312460001"}' \
+  https://your-domain.com/api/v1/get-agent
+```
+
+### Health Check (no auth required)
+
+```bash
+curl https://your-domain.com/health
+```
+
+---
+
+## 🔧 CLI Tool
+
+```bash
+# Show current key (masked)
+python3 scripts/manage_api_key.py show
+
+# Show full key
+python3 scripts/manage_api_key.py show --raw
+
+# Generate new key
+python3 scripts/manage_api_key.py generate
+
+# Set a custom key
+python3 scripts/manage_api_key.py set "my-custom-key-here"
+```
+
+---
+
+## 🚀 Quick Start
+
+```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose build
+docker compose up -d
 ```
 
-Services:
-- Frontend/Nginx ingress: http://localhost:83
-- Backend API: http://localhost:8002
-- PostgreSQL: localhost:5435
-- Redis: localhost:6382
+The app will be available at:
+- **HTTP:** `http://your-server:83` (redirects to HTTPS)
+- **HTTPS:** `https://your-server:443`
 
-### Local backend development
+---
 
-```
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
+## 📋 API Security Overview
 
-## API overview
-
-Base URL: `/api/v1`
-
-Routing:
-- `POST /api/v1/route/`
-- `POST /api/v1/get-agent/`
-- `POST /api/v1/call-completed/`
-
-Auth:
-- `POST /api/v1/auth/login/`
-- `POST /api/v1/auth/register/`
-- `GET /api/v1/auth/me/`
-
-Agents:
-- `GET /api/v1/agents/`
-- `POST /api/v1/agents/`
-- `GET /api/v1/agents/{id}/`
-- `PUT /api/v1/agents/{id}/`
-- `DELETE /api/v1/agents/{id}/`
-- `POST /api/v1/agents/{id}/activate/`
-- `POST /api/v1/agents/{id}/deactivate/`
-- `GET /api/v1/agents/{id}/stats/`
-
-Categories:
-- `GET /api/v1/categories/`
-- `POST /api/v1/categories/`
-- `GET /api/v1/categories/{id}/`
-- `PUT /api/v1/categories/{id}/`
-- `DELETE /api/v1/categories/{id}/`
-- `POST /api/v1/categories/{id}/activate/`
-- `POST /api/v1/categories/{id}/deactivate/`
-- `GET /api/v1/categories/all-dids/`
-- `GET /api/v1/categories/{id}/agents/`
-- `POST /api/v1/categories/{id}/agents/`
-- `PUT /api/v1/categories/{id}/agents/{assignment_id}/`
-- `DELETE /api/v1/categories/{id}/agents/{assignment_id}/`
-
-Callers:
-- `GET /api/v1/callers/`
-- `GET /api/v1/callers/{caller_number}/history/`
-- `POST /api/v1/callers/{caller_number}/block/`
-- `POST /api/v1/callers/{caller_number}/unblock/`
-- `GET /api/v1/callers/blocklist/all/`
-- `POST /api/v1/callers/blocklist/`
-- `PUT /api/v1/callers/blocklist/{block_id}/`
-- `DELETE /api/v1/callers/blocklist/{block_id}/`
-
-Calls:
-- `POST /api/v1/calls/start/`
-- `POST /api/v1/calls/terminate/`
-- `GET /api/v1/calls/active/`
-
-Reports:
-- `GET /api/v1/reports/summary/`
-- `GET /api/v1/reports/agents/`
-- `GET /api/v1/reports/agents/summary/`
-- `GET /api/v1/reports/categories/`
-- `GET /api/v1/reports/categories/{category_id}/`
-- `GET /api/v1/reports/dids/`
-
-Other:
-- `GET /api/v1/health/`
-- `GET /api/v1/search/`
-- `GET /api/v1/audit/`
-- `GET /api/v1/config/smtp/`
-- `POST /api/v1/config/smtp/`
-- `GET /api/v1/recordings/`
+| Endpoint Group | Auth Required | Method |
+|---------------|--------------|--------|
+| Auth (`/auth/*`) | None (public) | Login, register, forgot-password |
+| Health (`/health`) | None | Health check |
+| Users, Agents, Categories, Config | JWT (user session) | Admin UI operations |
+| **Callers, Reports, Calls, Route, Recordings, Backup** | **API Key or JWT** | **External integrations** |
+| WebSocket (`/ws/*`) | None | Live dashboard updates |

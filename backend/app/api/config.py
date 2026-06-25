@@ -176,3 +176,84 @@ async def test_smtp(payload: SmtpTestRequest, db: AsyncSession = Depends(get_db)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"SMTP test failed: {exc}") from exc
     return SmtpTestResponse(message="Test email sent successfully")
+
+
+# ── API Key Management ──
+
+import secrets
+from datetime import datetime, timezone
+
+
+class ApiKeyResponse(BaseModel):
+    api_key: str
+    is_active: bool
+    created_at: str | None = None
+
+
+async def _get_api_key(db: AsyncSession) -> str | None:
+    """Get the API key from the database."""
+    row = (
+        await db.execute(
+            text("SELECT api_key FROM api_key_config ORDER BY id ASC LIMIT 1")
+        )
+    ).mappings().first()
+    if row and row["api_key"]:
+        return row["api_key"]
+    return None
+
+
+async def _ensure_api_key(db: AsyncSession) -> str:
+    """Ensure a default API key exists, creating it if needed."""
+    key = await _get_api_key(db)
+    if key:
+        return key
+    # Create from env var if set
+    env_key = getattr(settings, "API_KEY", "") or ""
+    db_key = env_key or ""
+    insert = text(
+        "INSERT INTO api_key_config (id, api_key) VALUES (1, :api_key) ON CONFLICT (id) DO UPDATE SET api_key = :api_key2"
+    )
+    await db.execute(insert, {"api_key": db_key, "api_key2": db_key})
+    await db.commit()
+    return db_key
+
+
+@router.get("/api-key", tags=["Config"])
+async def get_api_key(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Get current API key (masked)."""
+    key = await _ensure_api_key(db)
+    row = (
+        await db.execute(
+            text("SELECT created_at FROM api_key_config WHERE id = 1")
+        )
+    ).mappings().first()
+    masked = key[:4] + "****" + key[-4:] if len(key) > 8 else "****"
+    return ApiKeyResponse(
+        api_key=masked,
+        is_active=bool(key),
+        created_at=str(row["created_at"]) if row else None,
+    )
+
+
+@router.post("/api-key/regenerate", tags=["Config"])
+async def regenerate_api_key(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Generate a new random API key."""
+    new_key = secrets.token_hex(32)
+    insert = text(
+        "INSERT INTO api_key_config (id, api_key, updated_at) VALUES (1, :key, :now) "
+        "ON CONFLICT (id) DO UPDATE SET api_key = :key2, updated_at = :now2"
+    )
+    now = datetime.now(timezone.utc)
+    await db.execute(insert, {"key": new_key, "now": now, "key2": new_key, "now2": now})
+    await db.commit()
+    return ApiKeyResponse(
+        api_key=new_key,
+        is_active=True,
+        created_at=str(now),
+    )

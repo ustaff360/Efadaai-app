@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-this-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
     ALGORITHM: str = "HS256"
+    API_KEY: str = ""
 
     # App
     DEBUG: bool = False
